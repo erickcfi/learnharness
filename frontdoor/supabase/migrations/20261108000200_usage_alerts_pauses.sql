@@ -11,10 +11,17 @@ create table public.model_usage (
 	input_tokens integer not null default 0 check (input_tokens >= 0),
 	output_tokens integer not null default 0 check (output_tokens >= 0),
 	cache_read_tokens integer not null default 0 check (cache_read_tokens >= 0),
+	-- All cache writes. cache_write_1h_tokens is the part written with the
+	-- 1-hour lifetime (priced 2x input; 5-minute writes are 1.25x), so a stored
+	-- row can be priced again for the cross-check with upstream (C7).
 	cache_write_tokens integer not null default 0 check (cache_write_tokens >= 0),
-	cost_usd numeric(12, 6) not null check (cost_usd >= 0),
-	-- The provider's message ID, when known, so a retried record is not counted twice.
-	request_id text unique
+	cache_write_1h_tokens integer not null default 0 check (cache_write_1h_tokens >= 0),
+	-- Null when the model has no list price (Owner, 2026-11-08: the call goes
+	-- through and is stored unpriced). Null rows are left out of cost sums.
+	cost_usd numeric(12, 6) check (cost_usd >= 0),
+	-- The provider's request or message ID, so a retried record is not counted twice.
+	request_id text unique,
+	constraint model_usage_1h_within_total check (cache_write_1h_tokens <= cache_write_tokens)
 );
 comment on table public.model_usage is 'One row per metered model call: tokens and list-price dollars (C3 req 4).';
 create index model_usage_tenant_time_idx on public.model_usage (tenant_id, occurred_at);

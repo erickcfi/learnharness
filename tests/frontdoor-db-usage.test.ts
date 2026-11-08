@@ -17,7 +17,7 @@ async function tenant() {
 	const { tenant } = await dbm.createStudentAccount(t.db, { clerkUserId: `user_use_${++n}`, age18ConfirmedAt: AGE });
 	return tenant;
 }
-const call = (tenantId: string, costUsd: number, occurredAt: Date, requestId?: string): dbm.ModelUsageInput => ({
+const call = (tenantId: string, costUsd: number | null, occurredAt: Date, requestId?: string): dbm.ModelUsageInput => ({
 	tenantId,
 	occurredAt,
 	model: "claude-opus-5-5",
@@ -25,6 +25,7 @@ const call = (tenantId: string, costUsd: number, occurredAt: Date, requestId?: s
 	outputTokens: 300,
 	cacheReadTokens: 5000,
 	cacheWriteTokens: 800,
+	cacheWrite1hTokens: 200,
 	costUsd,
 	requestId,
 });
@@ -37,7 +38,7 @@ after(async () => {
 });
 
 describe("model usage rows (C3 req 4)", () => {
-	it("stores tenant, time, model, the four token counts and list-price dollars", async () => {
+	it("stores tenant, time, model, the token counts (with the 1-hour cache-write part) and list-price dollars", async () => {
 		const tn = await tenant();
 		const at = new Date("2026-11-08T11:00:00Z");
 		const res = await dbm.recordModelUsage(t.db, call(tn.id, 0.123456, at, "msg_store_1"));
@@ -55,10 +56,34 @@ describe("model usage rows (C3 req 4)", () => {
 				outputTokens: 300,
 				cacheReadTokens: 5000,
 				cacheWriteTokens: 800,
+				cacheWrite1hTokens: 200,
 				costUsd: 0.123456,
 				requestId: "msg_store_1",
 			},
 		);
+	});
+
+	it("defaults the 1-hour cache-write part to 0 and keeps it within the total", async () => {
+		const tn = await tenant();
+		const { cacheWrite1hTokens: _omit, ...without } = call(tn.id, 0.01, NOW, "msg_1h_default");
+		await dbm.recordModelUsage(t.db, without);
+		assert.equal((await dbm.listModelUsage(t.db, tn.id))[0]!.cacheWrite1hTokens, 0);
+		await assert.rejects(dbm.recordModelUsage(t.db, { ...call(tn.id, 0.01, NOW), cacheWriteTokens: 100, cacheWrite1hTokens: 101 }));
+		await assert.rejects(dbm.recordModelUsage(t.db, { ...call(tn.id, 0.01, NOW), cacheWrite1hTokens: -1 }));
+	});
+
+	it("stores an unpriced call with no dollars, left out of the cost sums but counted", async () => {
+		const tn = await tenant();
+		await dbm.recordModelUsage(t.db, call(tn.id, 2, NOW, "msg_priced"));
+		await dbm.recordModelUsage(t.db, { ...call(tn.id, null, NOW, "msg_unpriced"), model: "some-new-model" });
+		const rows = await dbm.listModelUsage(t.db, tn.id);
+		assert.equal(rows.find((r) => r.requestId === "msg_unpriced")?.costUsd, null);
+		assert.equal(await dbm.rollingModelCost(t.db, tn.id, NOW), 2);
+		const totals = await dbm.usageTotals(t.db, { since: new Date(NOW.getTime() - DAY), until: new Date(NOW.getTime() + DAY) });
+		const mine = totals.find((x) => x.tenantId === tn.id)!;
+		assert.equal(mine.modelCalls, 2);
+		assert.equal(mine.unpricedCalls, 1);
+		assert.equal(mine.modelCostUsd, 2);
 	});
 
 	it("does not count a repeated provider request ID twice", async () => {
@@ -120,8 +145,15 @@ describe("search counts (C3 req 7)", () => {
 		const totals = await dbm.usageTotals(t.db, { since: new Date(NOW.getTime() - DAY), until: new Date(NOW.getTime() + DAY) });
 		assert.deepEqual(
 			totals.find((x) => x.tenantId === a.id),
-			{ tenantId: a.id, modelCostUsd: 1.5, modelCalls: 1, searchCount: 2, searchFeeUsd: 0.016 },
+			{ tenantId: a.id, modelCostUsd: 1.5, modelCalls: 1, unpricedCalls: 0, searchCount: 2, searchFeeUsd: 0.016 },
 		);
+	});
+
+	it("uses the Tavily basic-search fee ($0.008, C3 req 7) when no fee is given", async () => {
+		const a = await tenant();
+		assert.equal(dbm.TAVILY_SEARCH_FEE_USD, 0.008);
+		await dbm.recordSearch(t.db, { tenantId: a.id, occurredAt: NOW });
+		assert.deepEqual(await dbm.searchUsageSince(t.db, a.id, new Date(0)), { count: 1, feeUsd: 0.008 });
 	});
 });
 

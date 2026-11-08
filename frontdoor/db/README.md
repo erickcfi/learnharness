@@ -19,8 +19,8 @@ Record in `docs/decisions/2026-11-08-database.md`.
 | `tenants` | One per student account: folder `tenants/<id>`, status (provisioning, ready, retention), retention end, Stripe customer | C1 req 2, 6 |
 | `account_roles` | owner or staff. No row means student | C7 req 1, D27 |
 | `consents` | session-text opt-in, tester written OK, with grant and revoke dates | C7 req 3, D19 |
-| `model_usage` | One row per model call: tokens, list-price dollars, provider request ID | C3 req 4 |
-| `search_usage` | One row per web search and its fee | C3 req 7 |
+| `model_usage` | One row per model call: tokens (cache writes with their 1-hour part), list-price dollars (null when the model has no list price), provider request ID | C3 req 4 |
+| `search_usage` | One row per web search and its fee ($0.008 Tavily default) | C3 req 7 |
 | `alerts` | Cost alert and autopause records. One open per tenant and kind | C3 req 5 |
 | `pauses` | Pause history. An open row means paused | C3 req 6 |
 | `subscriptions` | Stripe subscription and trial state | C2 |
@@ -60,7 +60,7 @@ Main entry points by package:
 - **Reports:** `getReportSettings`, `updateReportSettings`, `unsubscribeByToken`, `listWeeklyRecipients`, `claimReportSend`, `markReportSent`.
 - **Day 91:** `listTenantsDueForDeletion`, `deleteTenantAndAccount` (the caller deletes the tenant folder).
 
-Money comes back as numbers of dollars (`costUsd`, `feeUsd`) or whole cents (`amountPaidCents`). Times are `Date`s. Weekly report weeks are `YYYY-MM-DD` strings.
+Money comes back as numbers of dollars (`costUsd`, `feeUsd`) or whole cents (`amountPaidCents`). A model call with `costUsd: null` is unpriced: it is stored and counted (`unpricedCalls` in `usageTotals`), but adds nothing to the cost sums, so it never moves a tenant toward the alert or autopause. Times are `Date`s. Weekly report weeks are `YYYY-MM-DD` strings.
 
 ## Tests
 

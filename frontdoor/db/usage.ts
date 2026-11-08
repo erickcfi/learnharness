@@ -4,9 +4,12 @@
  * them.
  */
 
-import { date, dateOrNull, type Db, must, num, one, type Row, strOrNull } from "./db.ts";
+import { date, dateOrNull, type Db, must, num, numOrNull, one, type Row, strOrNull } from "./db.ts";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Tavily's fee per basic search (C3 req 7, K5). */
+export const TAVILY_SEARCH_FEE_USD = 0.008;
 
 // ---- model usage (C3 req 4) ----
 
@@ -17,10 +20,13 @@ export interface ModelUsageInput {
 	inputTokens: number;
 	outputTokens: number;
 	cacheReadTokens: number;
+	/** All cache-write tokens. */
 	cacheWriteTokens: number;
-	/** Dollars at list price for this call. */
-	costUsd: number;
-	/** The provider's message ID, so a retried record is not counted twice. */
+	/** The part of cacheWriteTokens written with the 1-hour lifetime. Default 0. */
+	cacheWrite1hTokens?: number;
+	/** Dollars at list price for this call, or null when the model has no list price. */
+	costUsd: number | null;
+	/** The provider's request or message ID, so a retried record is not counted twice. */
 	requestId?: string;
 }
 
@@ -33,7 +39,9 @@ export interface ModelUsage {
 	outputTokens: number;
 	cacheReadTokens: number;
 	cacheWriteTokens: number;
-	costUsd: number;
+	cacheWrite1hTokens: number;
+	/** Null means unpriced. */
+	costUsd: number | null;
 	requestId: string | null;
 }
 
@@ -47,7 +55,8 @@ function toModelUsage(r: Row): ModelUsage {
 		outputTokens: num(r.output_tokens),
 		cacheReadTokens: num(r.cache_read_tokens),
 		cacheWriteTokens: num(r.cache_write_tokens),
-		costUsd: num(r.cost_usd),
+		cacheWrite1hTokens: num(r.cache_write_1h_tokens),
+		costUsd: numOrNull(r.cost_usd),
 		requestId: strOrNull(r.request_id),
 	};
 }
@@ -55,8 +64,8 @@ function toModelUsage(r: Row): ModelUsage {
 /** Store one metered call. `recorded` is false when the request ID was already stored. */
 export async function recordModelUsage(db: Db, u: ModelUsageInput): Promise<{ recorded: boolean }> {
 	const rows = await db.query(
-		`insert into model_usage (tenant_id, occurred_at, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd, request_id)
-		 values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		`insert into model_usage (tenant_id, occurred_at, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cache_write_1h_tokens, cost_usd, request_id)
+		 values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		 on conflict (request_id) do nothing returning id`,
 		[
 			u.tenantId,
@@ -66,6 +75,7 @@ export async function recordModelUsage(db: Db, u: ModelUsageInput): Promise<{ re
 			u.outputTokens,
 			u.cacheReadTokens,
 			u.cacheWriteTokens,
+			u.cacheWrite1hTokens ?? 0,
 			u.costUsd,
 			u.requestId ?? null,
 		],
@@ -76,14 +86,14 @@ export async function recordModelUsage(db: Db, u: ModelUsageInput): Promise<{ re
 export async function listModelUsage(db: Db, tenantId: string, opts: { since?: Date; limit?: number } = {}): Promise<ModelUsage[]> {
 	return (
 		await db.query(
-			`select id, tenant_id, occurred_at, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd, request_id
+			`select id, tenant_id, occurred_at, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cache_write_1h_tokens, cost_usd, request_id
 			 from model_usage where tenant_id = $1 and occurred_at >= $2 order by occurred_at, id limit $3`,
 			[tenantId, opts.since ?? new Date(0), opts.limit ?? 1000],
 		)
 	).map(toModelUsage);
 }
 
-/** Model dollars from `since` up to and including `until`. */
+/** Model dollars from `since` up to and including `until`. Unpriced calls add nothing. */
 export async function modelCostSince(db: Db, tenantId: string, since: Date, until: Date = new Date()): Promise<number> {
 	const r = await must(db, "select coalesce(sum(cost_usd), 0) as total from model_usage where tenant_id = $1 and occurred_at > $2 and occurred_at <= $3", [
 		tenantId,
@@ -100,12 +110,13 @@ export async function rollingModelCost(db: Db, tenantId: string, now: Date = new
 
 // ---- search counts (C3 req 7) ----
 
-export async function recordSearch(db: Db, s: { tenantId: string; feeUsd: number; occurredAt?: Date; provider?: string }): Promise<void> {
+/** Store one search the provider answered. The fee defaults to Tavily's basic-search price. */
+export async function recordSearch(db: Db, s: { tenantId: string; feeUsd?: number; occurredAt?: Date; provider?: string }): Promise<void> {
 	await db.query("insert into search_usage (tenant_id, occurred_at, provider, fee_usd) values ($1, $2, $3, $4)", [
 		s.tenantId,
 		s.occurredAt ?? new Date(),
 		s.provider ?? "tavily",
-		s.feeUsd,
+		s.feeUsd ?? TAVILY_SEARCH_FEE_USD,
 	]);
 }
 
@@ -119,8 +130,11 @@ export async function searchUsageSince(db: Db, tenantId: string, since: Date): P
 
 export interface UsageTotal {
 	tenantId: string;
+	/** Priced calls only. */
 	modelCostUsd: number;
 	modelCalls: number;
+	/** Calls stored with no dollar amount (model missing from the price list). */
+	unpricedCalls: number;
 	searchCount: number;
 	searchFeeUsd: number;
 }
@@ -129,10 +143,10 @@ export interface UsageTotal {
 export async function usageTotals(db: Db, range: { since?: Date; until?: Date } = {}): Promise<UsageTotal[]> {
 	const rows = await db.query(
 		`select t.id as tenant_id,
-		        coalesce(m.cost, 0) as model_cost, coalesce(m.calls, 0) as model_calls,
+		        coalesce(m.cost, 0) as model_cost, coalesce(m.calls, 0) as model_calls, coalesce(m.unpriced, 0) as unpriced_calls,
 		        coalesce(s.n, 0) as search_count, coalesce(s.fee, 0) as search_fee
 		 from tenants t
-		 left join (select tenant_id, sum(cost_usd) as cost, count(*) as calls from model_usage
+		 left join (select tenant_id, sum(cost_usd) as cost, count(*) as calls, count(*) filter (where cost_usd is null) as unpriced from model_usage
 		            where occurred_at >= $1 and occurred_at < $2 group by tenant_id) m on m.tenant_id = t.id
 		 left join (select tenant_id, count(*) as n, sum(fee_usd) as fee from search_usage
 		            where occurred_at >= $1 and occurred_at < $2 group by tenant_id) s on s.tenant_id = t.id
@@ -143,6 +157,7 @@ export async function usageTotals(db: Db, range: { since?: Date; until?: Date } 
 		tenantId: String(r.tenant_id),
 		modelCostUsd: num(r.model_cost),
 		modelCalls: num(r.model_calls),
+		unpricedCalls: num(r.unpriced_calls),
 		searchCount: num(r.search_count),
 		searchFeeUsd: num(r.search_fee),
 	}));
