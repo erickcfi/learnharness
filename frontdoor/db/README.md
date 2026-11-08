@@ -7,7 +7,7 @@ The Supabase schema and the typed data-access module for the North Aero Ground T
 - Migrations live in `frontdoor/supabase/migrations/`. Code lives here, in `frontdoor/db/`.
 - The server talks to Supabase over a **direct Postgres connection** through Supabase's session pooler, with the `postgres` npm package. It does not use the Data API (supabase-js), which can be turned off in the Supabase dashboard.
 - **Row-level security is on for every table, with no allow rules.** Supabase's `anon` and `authenticated` roles get no table rights. Only the server reads and writes. Students see their data only through the tutor's pages.
-- **Trial claims** keep a keyed hash of the email and Stripe's card fingerprint, with no tenant link, after the day-91 delete. This is flagged for the legal review (T5) and the privacy policy.
+- **Trial claims** keep a keyed hash of the email and Stripe's card fingerprint, with no tenant link, after the day-91 delete. The privacy policy (T5) must state this kept record (D32).
 
 Record in `docs/decisions/2026-11-08-database.md`.
 

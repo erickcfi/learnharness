@@ -72,7 +72,7 @@ grant select, insert, update, delete on table public.invoices to service_role;
 -- One trial per email and per card (C2 req 2, D10). Owner's choice
 -- (2026-11-08): keep a keyed one-way hash of the email and Stripe's card
 -- fingerprint, with no link to a tenant, so the record outlives the day-91
--- delete. Flagged for the legal review (T5) and the privacy policy.
+-- delete. The privacy policy (T5) must state this kept record (D32).
 create table public.trial_claims (
 	id bigint generated always as identity primary key,
 	email_hash text unique check (email_hash ~ '^[0-9a-f]{64}$'),
