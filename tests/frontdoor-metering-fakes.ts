@@ -64,6 +64,7 @@ function anthropicUsage(usage: ScriptedUsage, output: number) {
 }
 
 let messageCounter = 0;
+let requestCounter = 0;
 
 /** The SSE events of one scripted reply, as the Messages API streams them. */
 export function sseEvents(model: string, reply: ScriptedReply): string[] {
@@ -165,12 +166,13 @@ export async function startFakeAnthropic(script: Script): Promise<FakeAnthropic>
 				res.end(JSON.stringify({ type: "error", error: { type: "api_error", message: "script exhausted" } }));
 				return;
 			}
+			const requestId = `req_fake_${++requestCounter}`;
 			if (body.stream !== true) {
-				res.writeHead(200, { "content-type": "application/json" });
+				res.writeHead(200, { "content-type": "application/json", "request-id": requestId });
 				res.end(JSON.stringify(messageBody(model, reply)));
 				return;
 			}
-			res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
+			res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", "request-id": requestId });
 			for (const event of sseEvents(model, reply)) res.write(event);
 			if (reply.stall) {
 				stalled += 1;

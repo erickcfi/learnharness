@@ -138,6 +138,10 @@ describe("metering proxy", () => {
 			assert.ok(Math.abs(row.dollars - expectedDollars(model, reply.usage)) < 0.01, `call ${i + 1} within one cent`);
 		});
 
+		const requestIds = rows.map((row) => row.requestId);
+		assert.equal(new Set(requestIds).size, rows.length, "each call has its own request id");
+		for (const id of requestIds) assert.match(id, /^req_fake_\d+$/, "taken from Anthropic's request-id header");
+
 		const metered = rows.reduce((sum, row) => sum + (row.dollars ?? 0), 0);
 		const expected = calls.reduce((sum, c) => sum + expectedDollars(c.model, c.reply.usage), 0);
 		assert.ok(expected > 1, `the session costs real money (${expected.toFixed(4)})`);

@@ -26,6 +26,8 @@ export interface CallRecord extends TokenUsage {
 	model: string;
 	/** Dollars at list price. null means unpriced: the price list has no rate for the model. */
 	dollars: number | null;
+	/** Unique per call: Anthropic's request-id header, else the message id, else an id the proxy made. */
+	requestId: string;
 }
 
 /** One counted Tavily search (C3 requirement 7). */

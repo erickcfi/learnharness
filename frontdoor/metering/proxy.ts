@@ -18,10 +18,11 @@
  * Logs carry no session text: only tenant ids, statuses and error names.
  */
 
+import { randomUUID } from "node:crypto";
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from "node:http";
 import { listPrice } from "./price.ts";
 import type { MeteringStore, TokenUsage } from "./store.ts";
-import { createUsageTap, usageFromMessage, type UsageTap } from "./usage.ts";
+import { createUsageTap, usageFromMessage, type SeenUsage, type UsageTap } from "./usage.ts";
 
 /** What a paused student sees (C3 requirement 6). */
 export const PAUSED_MESSAGE = "Your account is paused for a fair-use review. Contact North Aero.";
@@ -168,10 +169,10 @@ export function createMeteringProxy(options: MeteringProxyOptions): MeteringProx
 		void pending.finally(() => inFlight.delete(pending));
 	}
 
-	function recordCall(tenantId: string, model: string, usage: TokenUsage): void {
+	function recordCall(tenantId: string, model: string, usage: TokenUsage, requestId: string): void {
 		track(async () => {
 			const dollars = price(model, usage);
-			await options.store.recordCall({ tenantId, at: now(), model, ...usage, dollars });
+			await options.store.recordCall({ tenantId, at: now(), model, ...usage, dollars, requestId });
 		}, "model call", tenantId);
 	}
 
@@ -221,10 +222,10 @@ export function createMeteringProxy(options: MeteringProxyOptions): MeteringProx
 			// Upstream failed or the tenant hung up mid-stream: close the reply, keep what was seen.
 			if (!res.destroyed) res.destroy();
 		} finally {
-			let seen: { usage: TokenUsage | null; model: string | undefined } = { usage: null, model: undefined };
+			let seen: SeenUsage = { usage: null, model: undefined, messageId: undefined };
 			if (tap) {
 				tap.end();
-				seen = { usage: tap.usage, model: tap.model };
+				seen = { usage: tap.usage, model: tap.model, messageId: tap.messageId };
 			} else if (whole) {
 				try {
 					seen = usageFromMessage(JSON.parse(Buffer.concat(whole).toString("utf8")));
@@ -232,7 +233,10 @@ export function createMeteringProxy(options: MeteringProxyOptions): MeteringProx
 					// A body that is not a whole JSON message carries no usage to record.
 				}
 			}
-			if (seen.usage) recordCall(tenantId, model ?? seen.model ?? "unknown", seen.usage);
+			if (seen.usage) {
+				const requestId = upstream.headers.get("request-id") || seen.messageId || `proxy-${randomUUID()}`;
+				recordCall(tenantId, model ?? seen.model ?? "unknown", seen.usage, requestId);
+			}
 		}
 	}
 

@@ -51,6 +51,8 @@ export interface UsageTap {
 	readonly usage: TokenUsage | null;
 	/** The model the response named, if seen. */
 	readonly model: string | undefined;
+	/** The response's message id (msg_...), if seen. */
+	readonly messageId: string | undefined;
 }
 
 /** Watches a Messages API event stream for usage without changing it. */
@@ -59,6 +61,7 @@ export function createUsageTap(): UsageTap {
 	let pending = "";
 	let usage: TokenUsage | null = null;
 	let model: string | undefined;
+	let messageId: string | undefined;
 
 	function onEvent(block: string): void {
 		let event = "";
@@ -68,7 +71,7 @@ export function createUsageTap(): UsageTap {
 			else if (line.startsWith("data:")) data.push(line.slice(5).replace(/^ /, ""));
 		}
 		if (data.length === 0 || (event && event !== "message_start" && event !== "message_delta")) return;
-		let parsed: { type?: unknown; message?: { model?: unknown; usage?: AnthropicUsage }; usage?: AnthropicUsage };
+		let parsed: { type?: unknown; message?: { id?: unknown; model?: unknown; usage?: AnthropicUsage }; usage?: AnthropicUsage };
 		try {
 			parsed = JSON.parse(data.join("\n")) as typeof parsed;
 		} catch {
@@ -77,6 +80,7 @@ export function createUsageTap(): UsageTap {
 		if (parsed.type === "message_start") {
 			usage = fromUsage(parsed.message?.usage);
 			if (typeof parsed.message?.model === "string") model = parsed.message.model;
+			if (typeof parsed.message?.id === "string") messageId = parsed.message.id;
 		} else if (parsed.type === "message_delta" && parsed.usage) {
 			usage = applyDelta(usage ?? ZERO, parsed.usage);
 		}
@@ -103,15 +107,26 @@ export function createUsageTap(): UsageTap {
 		get model() {
 			return model;
 		},
+		get messageId() {
+			return messageId;
+		},
 	};
 }
 
-/** Usage and model from a whole (non-streaming) Messages API response body. */
-export function usageFromMessage(body: unknown): { usage: TokenUsage | null; model: string | undefined } {
-	if (!body || typeof body !== "object") return { usage: null, model: undefined };
-	const message = body as { usage?: AnthropicUsage; model?: unknown };
+/** What one response says about itself: its usage, model and message id. */
+export interface SeenUsage {
+	usage: TokenUsage | null;
+	model: string | undefined;
+	messageId: string | undefined;
+}
+
+/** Usage, model and message id from a whole (non-streaming) Messages API response body. */
+export function usageFromMessage(body: unknown): SeenUsage {
+	if (!body || typeof body !== "object") return { usage: null, model: undefined, messageId: undefined };
+	const message = body as { id?: unknown; usage?: AnthropicUsage; model?: unknown };
 	return {
 		usage: message.usage && typeof message.usage === "object" ? fromUsage(message.usage) : null,
 		model: typeof message.model === "string" ? message.model : undefined,
+		messageId: typeof message.id === "string" ? message.id : undefined,
 	};
 }

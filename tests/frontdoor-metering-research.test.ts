@@ -17,7 +17,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { after, describe, it } from "node:test";
 import { REAL_ANTHROPIC_KEY, TEST_PASS_KEY_SECRET, blockExternalFetch, startFakeAnthropic, startFakeTavily, startMeteringProxy, type ScriptedReply } from "./frontdoor-metering-fakes.ts";
-import { makePassKey } from "../frontdoor/metering/pass-key.ts";
+import { meteringEnvForTenant } from "../frontdoor/metering/tenant-env.ts";
 
 blockExternalFetch();
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "lh-metering-research-"));
@@ -36,8 +36,6 @@ after(() => fs.rmSync(scratch, { recursive: true, force: true }));
 
 const TENANT_A = "tenant-a-0001";
 const TENANT_B = "tenant-b-0002";
-const PASS_A = makePassKey(TEST_PASS_KEY_SECRET, TENANT_A);
-const PASS_B = makePassKey(TEST_PASS_KEY_SECRET, TENANT_B);
 
 const BRIEF = `## Summary
 The RMK section holds remarks such as AO2 and sea-level pressure.
@@ -56,12 +54,21 @@ const SEARCH_STEP: ScriptedReply = {
 const BRIEF_STEP: ScriptedReply = { text: BRIEF, usage: { input: 1_500, cacheRead: 4_000, output: 900 } };
 const TENANT_B_TURN: ScriptedReply = { text: "Tenant B's lesson.", usage: { input: 777, output: 77 } };
 
-/** Tenant B's server: a separate process with B's pass key, as in production. */
+/**
+ * Tenant B's server: a separate process, spawned the way the front door
+ * will spawn it. The inherited environment carries a "real" Anthropic
+ * token of the front door's own; meteringEnvForTenant, spread last, must
+ * keep it out of the tenant.
+ */
 function runTenantB(proxyUrl: string): Promise<{ stopReason: string }> {
 	const script = fileURLToPath(new URL("./frontdoor-metering-tenant-turn.ts", import.meta.url));
 	return new Promise((resolve, reject) => {
 		const child = spawn(process.execPath, ["--import", "tsx", script], {
-			env: { ...process.env, ANTHROPIC_API_KEY: PASS_B, LH_ANTHROPIC_BASE_URL: proxyUrl, TAVILY_API_KEY: "", LH_TAVILY_BASE_URL: "" },
+			env: {
+				...process.env,
+				ANTHROPIC_AUTH_TOKEN: "test-front-door-own-token",
+				...meteringEnvForTenant(TENANT_B, { passKeySecret: TEST_PASS_KEY_SECRET, proxyUrl }),
+			},
 			stdio: ["ignore", "pipe", "pipe"],
 		});
 		let out = "";
@@ -83,11 +90,8 @@ describe("background research metering", () => {
 		const tavily = await startFakeTavily();
 		const stack = await startMeteringProxy({ anthropicUrl: anthropic.url, tavilyUrl: tavily.url });
 		try {
-			// Tenant A's server environment, as the front door sets it.
-			process.env.ANTHROPIC_API_KEY = PASS_A;
-			process.env.TAVILY_API_KEY = PASS_A;
-			process.env.LH_ANTHROPIC_BASE_URL = stack.url;
-			process.env.LH_TAVILY_BASE_URL = `${stack.url}/tavily`;
+			// Tenant A's server environment, as the front door sets it at spawn.
+			Object.assign(process.env, meteringEnvForTenant(TENANT_A, { passKeySecret: TEST_PASS_KEY_SECRET, proxyUrl: stack.url }));
 
 			const chat = chatStore.createChat("Metering: research job");
 			const job = jobStore.createJob({ kind: "research", chatId: chat.id, toolCallId: "call-meter-1" });
