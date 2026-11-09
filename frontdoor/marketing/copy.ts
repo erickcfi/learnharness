@@ -278,7 +278,7 @@ export const HELP = {
 			title: "Cancel or change your card",
 			steps: [
 				"Open your account, then Manage billing.",
-				"Change your card, or cancel your plan.",
+				"Change your card, or cancel your plan. You can cancel any time.",
 				"If you cancel, you keep the tutor until the end of the time you paid for.",
 			],
 			note: "We keep your data for 90 days after that, so you can export it. Then it is deleted.",

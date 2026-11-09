@@ -227,6 +227,70 @@ describe("no Clerk or other third-party scripts on public pages", () => {
 	});
 });
 
+describe("public page HTML loads no Clerk script", () => {
+	/** Every package a file imports, following relative imports through the front door's own files. */
+	function packagesReachedFrom(entries: string[]): Set<string> {
+		const seen = new Set<string>();
+		const packages = new Set<string>();
+		const resolve = (from: string, spec: string) => {
+			const base = path.resolve(path.dirname(from), spec);
+			for (const candidate of [base, `${base}.ts`, `${base}.tsx`, path.join(base, "index.ts")]) {
+				if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) return candidate;
+			}
+			throw new Error(`cannot resolve ${spec} from ${from}`);
+		};
+		const walk = (file: string) => {
+			if (seen.has(file)) return;
+			seen.add(file);
+			if (file.endsWith(".css")) return;
+			const source = fs.readFileSync(file, "utf8");
+			// Import and export statements only (at the start of a line), and import("...").
+			for (const m of source.matchAll(/^\s*(?:import|export)\s[^;]*?\bfrom\s*["']([^"']+)["']|^\s*import\s*["']([^"']+)["']|\bimport\(\s*["']([^"']+)["']\s*\)/gm)) {
+				const spec = (m[1] ?? m[2] ?? m[3])!;
+				if (spec.startsWith(".")) walk(resolve(file, spec));
+				else packages.add(spec);
+			}
+		};
+		for (const entry of entries) walk(entry);
+		return packages;
+	}
+
+	it("no Clerk code can reach the public pages' bundles", () => {
+		const entries = [path.join(FRONTDOOR, "app", "layout.tsx"), path.join(FRONTDOOR, "app", "robots.ts"), path.join(FRONTDOOR, "app", "sitemap.ts")];
+		const walk = (dir: string) => {
+			for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+				const full = path.join(dir, entry.name);
+				if (entry.isDirectory()) walk(full);
+				else if (/^(page|layout)\.tsx$/.test(entry.name)) entries.push(full);
+			}
+		};
+		walk(path.join(FRONTDOOR, "app", "(public)"));
+		const packages = [...packagesReachedFrom(entries)].sort();
+		assert.equal(
+			packages.some((p) => p.startsWith("@clerk/")),
+			false,
+			packages.join(", "),
+		);
+		assert.deepEqual(packages, ["next", "next/font/google", "react"]);
+	});
+
+	const BUILT = path.join(FRONTDOOR, ".next", "server", "app");
+	const built = fs.existsSync(path.join(BUILT, "index.html"));
+	it("the built public pages, and every script they load, hold no Clerk code", { skip: !built && "the front door is not built (npm run build -w frontdoor)" }, () => {
+		for (const page of ["index.html", "how-it-works.html", "help.html", "legal/terms.html", "legal/privacy.html", "legal/ai-notice.html"]) {
+			const html = fs.readFileSync(path.join(BUILT, page), "utf8");
+			assert.equal(/clerk/i.test(html), false, page);
+			const scripts = [...html.matchAll(/<script[^>]*\ssrc="([^"]+)"/g)].map((m) => m[1]!);
+			assert.ok(scripts.length > 0, `${page} loads its scripts`);
+			for (const src of scripts) {
+				assert.match(src, /^\/account\/_next\/static\//, `${page}: ${src} is first-party`);
+				const code = fs.readFileSync(path.join(FRONTDOOR, ".next", src.replace(/^\/account\/_next\//, "")), "utf8");
+				assert.equal(/clerk/i.test(code), false, `${page}: ${src}`);
+			}
+		}
+	});
+});
+
 describe("text rules for Erick's copy", () => {
 	it("no page or copy file holds a dollar amount of its own", () => {
 		const offenders = publicSourceFiles().filter((file) => /\$\s?\d/.test(fs.readFileSync(file, "utf8")));
