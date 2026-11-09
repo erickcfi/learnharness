@@ -65,11 +65,17 @@ export interface DataSafety {
 	close(): Promise<void>;
 }
 
-/** GET a path from the tenant's own server on 127.0.0.1. */
-export function supervisorFetch(servers: Pick<TenantServers, "ensureRunning">): TenantFetch {
+/** GET a path from the tenant's own server on 127.0.0.1. When the servers
+ *  object is the real supervisor, its tenantFetch adds the tenant's secret
+ *  (W2-6 wall A); a tenant server refuses any request without it. */
+export function supervisorFetch(
+	servers: Pick<TenantServers, "ensureRunning"> & { tenantFetch?(tenantId: string, path: string, init?: RequestInit): Promise<Response> },
+): TenantFetch {
+	const init = (): RequestInit => ({ headers: { accept: "application/json, text/markdown;q=0.9, */*;q=0.1" }, signal: AbortSignal.timeout(60_000) });
 	return async (tenantId, path) => {
+		if (servers.tenantFetch) return servers.tenantFetch(tenantId, path, init());
 		const port = await servers.ensureRunning(tenantId);
-		return fetch(`http://127.0.0.1:${port}${path}`, { headers: { accept: "application/json, text/markdown;q=0.9, */*;q=0.1" }, signal: AbortSignal.timeout(60_000) });
+		return fetch(`http://127.0.0.1:${port}${path}`, init());
 	};
 }
 

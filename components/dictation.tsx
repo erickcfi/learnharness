@@ -7,6 +7,8 @@ import { Hint } from "@/components/ui/hint";
 import { deepgramListenUrl, type DictationLanguage } from "@/src/core";
 import { useDictationLanguage } from "@/components/dictation-preference";
 import { setDictationActive } from "@/components/dictation-state";
+// North Aero fork (W2-6, N13): hosted mode has no dictation: no mic, no token calls.
+import { useHosted } from "@/frontdoor/isolation/hosted";
 export { isDictationActive } from "@/components/dictation-state";
 
 /**
@@ -599,19 +601,21 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 	// page; the Esc chain lands here as a CANCEL (owner, round 3). Each
 	// page owns ONE hook instance, and only the mounted page's listener is
 	// attached.
+	const hosted = useHosted();
 	useEffect(() => {
-		warmTokens.refresh(); // pre-mint at mount (mitigation D) — silent if keyless
+		if (!hosted) warmTokens.refresh(); // pre-mint at mount (mitigation D) — silent if keyless
 		return () => {
 			// Navigation cancels capture: invalidate every pending await before
 			// releasing resources, and never append into a different page's input.
 			bufferRef.current = [];
 			cleanup(false);
 		};
-	}, [cleanup]);
+	}, [cleanup, hosted]);
 	useEffect(() => {
+		if (hosted) return;
 		window.addEventListener("lh:kbd-toggle-dictation", toggle);
 		return () => window.removeEventListener("lh:kbd-toggle-dictation", toggle);
-	}, [toggle]);
+	}, [toggle, hosted]);
 	useEffect(() => {
 		window.addEventListener("lh:kbd-cancel-dictation", cancel);
 		return () => window.removeEventListener("lh:kbd-cancel-dictation", cancel);
@@ -645,6 +649,7 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 export function DictationBar({ dictation }: { dictation: Dictation }) {
 	const { phase, error, levelRef, toggle, active, clearError } = dictation;
 	const { open: openSettings } = useSettingsDialog();
+	const hosted = useHosted();
 	/** The keyless click (zero-keys wave, owner dictation trio): the errored
 	 *  idle button deep-links Settings → Keys → the Deepgram row and clears
 	 *  the error — the surface is clean when the user returns. Any other
@@ -691,6 +696,7 @@ export function DictationBar({ dictation }: { dictation: Dictation }) {
 		return () => ro.disconnect();
 	}, [active]);
 
+	if (hosted && !active) return null;
 	if (!active) {
 		return (
 			<Hint

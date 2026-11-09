@@ -34,6 +34,8 @@ import { type Db, markTenantReady } from "../db/index.ts";
 import type { ClerkGateway } from "../gateway/auth.ts";
 import { createClerkGateway } from "../gateway/clerk.ts";
 import { createGateway } from "../gateway/handler.ts";
+import { studentRoutePolicy } from "../gateway/route-guard.ts";
+import type { RouteRule } from "../gateway/route-policy.ts";
 import { passKeyResolver } from "../metering/pass-key.ts";
 import { createMeteringProxy } from "../metering/proxy.ts";
 import { createMemoryMeteringStore } from "../metering/store.ts";
@@ -41,14 +43,13 @@ import { createSupabaseMeteringStore, type DurableMeteringStore } from "../meter
 import { meteringEnvForTenant } from "../metering/tenant-env.ts";
 import { createDataSafety, type DataSafety } from "../pause/data-safety.ts";
 import { tenantServerEnv } from "../production-safety/index.ts";
-import { tenantFetchStandIn } from "../reports/tenant-record.ts";
 import { type EmailReports, type EmailReportsOptions, startEmailReports } from "../reports/wiring.ts";
 import { fileAccessTemplate, libraryDir, tenantLockdownEnv } from "../settings-template/file-access.ts";
 import { type AccountStore, InMemoryAccountStore } from "../tenants/accounts.ts";
 import { provisionTenant } from "../tenants/provisioning.ts";
 import type { FileAccessProvider } from "../tenants/settings-template.ts";
 import { SupabaseAccountStore } from "../tenants/supabase-accounts.ts";
-import { TenantSupervisor } from "../tenants/supervisor.ts";
+import { type TenantEndpoint, TenantSupervisor } from "../tenants/supervisor.ts";
 import { connectDatabase, type DatabaseConnection } from "./database.ts";
 import { preflight } from "./env.ts";
 import { tenantStderrForwarder } from "./tenant-logs.ts";
@@ -69,6 +70,9 @@ export interface FrontDoorOptions {
 	db?: Db;
 	/** Tests only: where the meter forwards (fakes on 127.0.0.1). Never set from the environment. */
 	upstream?: { anthropicBaseUrl?: string; tavilyBaseUrl?: string };
+	/** Tests only: extra API routes a stand-in tenant answers (W2-6 route table).
+	 *  Never set from the environment. */
+	extraTestRoutes?: readonly RouteRule[];
 	/** Tests only: the email sender and student directory for the reports (W2-10). */
 	email?: Pick<EmailReportsOptions, "sender" | "students">;
 	/** Operational lines. Never given session text or email addresses. */
@@ -80,6 +84,9 @@ export interface FrontDoor {
 	url: string;
 	/** Where tenant servers reach the meter. */
 	meterUrl: string;
+	/** A tenant's server (started if needed) and the secret header every
+	 *  request to it needs (W2-6 wall A). For records, dashboard, email. */
+	tenantEndpoint(tenantId: string): Promise<TenantEndpoint>;
 	/** W2-7, with a database: pause controls (dashboard), retention calls (Stripe), the cost watch. */
 	dataSafety?: DataSafety;
 	/** Email reports (W2-10). */
@@ -163,7 +170,14 @@ export async function startFrontDoor(options: FrontDoorOptions): Promise<FrontDo
 		// Errors only, filtered, cut, and capped per tenant (wiring/tenant-logs.ts).
 		onOutput: tenantStderrForwarder({ log }),
 		onExit: (tenantId, code, signal) => log(`tenant ${tenantId} server stopped (code ${code}, signal ${signal})`),
+		// W2-6, P2-04: the Owner's template is written again before every start.
+		prepare: (tenantId) => {
+			provisionTenant({ volumeDir: config.volumeDir, tenantId, fileAccess: libraryOnly });
+		},
 	});
+	// W2-6: the route table, with the Owner's File access for the agent-section check.
+	const policy = studentRoutePolicy({ fileAccess: fileAccessTemplate(library) });
+	const routePolicy = options.extraTestRoutes ? { ...policy, rules: [...options.extraTestRoutes, ...policy.rules] } : policy;
 	const dataSafety = safety?.attach(supervisor);
 
 	// Email reports (W2-10): the report loop and the report pages.
@@ -176,8 +190,8 @@ export async function startFrontDoor(options: FrontDoorOptions): Promise<FrontDo
 		sessionSecret: config.sessionSecret,
 		secureCookies: config.secureCookies,
 		trustForwardedHeaders: config.trustForwardedHeaders,
-		// At the w2-isolation merge: (tenantId, path, init) => supervisor.tenantFetch(tenantId, path, init).
-		tenantFetch: tenantFetchStandIn((tenantId) => supervisor.ensureRunning(tenantId)),
+		// W2-6 wall A: every read of a tenant's server carries that tenant's secret.
+		tenantFetch: (tenantId, path, init) => supervisor.tenantFetch(tenantId, path, init),
 		// At the w2-dashboard merge, add: sittings: <frontdoor/study-time's ended-sittings export>.
 		...options.email,
 		log,
@@ -187,6 +201,7 @@ export async function startFrontDoor(options: FrontDoorOptions): Promise<FrontDo
 		accounts,
 		clerk,
 		supervisor,
+		routePolicy,
 		provision: async (tenantId) => {
 			provisionTenant({ volumeDir: config.volumeDir, tenantId, fileAccess: libraryOnly });
 			// Safe to repeat: only a tenant still in 'provisioning' changes.
@@ -210,6 +225,7 @@ export async function startFrontDoor(options: FrontDoorOptions): Promise<FrontDo
 	return {
 		url,
 		meterUrl,
+		tenantEndpoint: (tenantId) => supervisor.endpoint(tenantId),
 		...(safety ? { dataSafety: safety } : {}),
 		email: { mode: email.mode, sender: email.sender, runner: email.runner },
 		close() {

@@ -68,6 +68,9 @@ before(async () => {
 		clerk: { authenticate: async () => clerkResult, isSessionActive: async () => true },
 		db: t.db,
 		upstream: { anthropicBaseUrl: anthropic.url },
+		// W2-6: the stand-in tenant's own routes are not upstream's, so the
+		// route table must be told about them (an unlisted /api path gets 403).
+		extraTestRoutes: [{ path: "/api/wiring/[action]", methods: ["POST"], access: "allowed", reason: "Test stand-in only." }],
 		log: (line) => logs.push(line),
 	});
 	// Thresholds the fake calls cross: 1 call is under the alert, 2 reach it, 3 reach autopause.
