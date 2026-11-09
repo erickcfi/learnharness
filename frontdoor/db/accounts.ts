@@ -105,11 +105,30 @@ export async function createTenant(db: Db, accountId: string): Promise<Tenant> {
 	return toTenant(await must(db, `insert into tenants (account_id) values ($1) returning ${TENANT_COLS}`, [accountId]));
 }
 
-/** A student's account and tenant, made together in one transaction. */
+/** A student's account and tenant, made together in one transaction. Throws if the Clerk user already has an account. */
 export async function createStudentAccount(db: Db, input: NewAccount): Promise<{ account: Account; tenant: Tenant }> {
 	return db.transaction(async (tx) => {
 		const account = await createAccount(tx, input);
 		const tenant = await createTenant(tx, account.id);
+		return { account, tenant };
+	});
+}
+
+/**
+ * A student's account and tenant: made on the first call, returned as they are
+ * after that. The front door calls it at every sign-in. Safe to repeat and to
+ * run twice at once (two tabs): the first 18+ date is kept. An account with no
+ * tenant (made by createAccount) gets one.
+ */
+export async function ensureStudentAccount(db: Db, input: NewAccount): Promise<{ account: Account; tenant: Tenant }> {
+	return db.transaction(async (tx) => {
+		await tx.query("insert into accounts (clerk_user_id, age_18_confirmed_at) values ($1, $2) on conflict (clerk_user_id) do nothing", [
+			input.clerkUserId,
+			input.age18ConfirmedAt,
+		]);
+		const account = toAccount(await must(tx, `select ${ACCOUNT_COLS} from accounts where clerk_user_id = $1`, [input.clerkUserId]));
+		await tx.query("insert into tenants (account_id) values ($1) on conflict (account_id) do nothing", [account.id]);
+		const tenant = toTenant(await must(tx, `select ${TENANT_COLS} from tenants where account_id = $1`, [account.id]));
 		return { account, tenant };
 	});
 }
@@ -138,14 +157,23 @@ export async function listTenants(db: Db): Promise<Tenant[]> {
 	return (await db.query(`select ${TENANT_COLS} from tenants order by created_at, id`)).map(toTenant);
 }
 
-/** The tenant folder exists and its server can start. */
+/**
+ * The tenant folder exists and its server can start. Safe to repeat (the front
+ * door provisions at every sign-in): only a tenant still in provisioning
+ * changes. A ready tenant or one in retention comes back as it is. Throws only
+ * when the tenant does not exist.
+ */
 export async function markTenantReady(db: Db, tenantId: string, at: Date = new Date()): Promise<Tenant> {
-	return toTenant(
-		await must(db, `update tenants set status = 'ready', ready_at = $2 where id = $1 and status = 'provisioning' returning ${TENANT_COLS}`, [
-			tenantId,
-			at,
-		]),
+	const updated = await one(
+		db,
+		`update tenants set status = 'ready', ready_at = $2 where id = $1 and status = 'provisioning' returning ${TENANT_COLS}`,
+		[tenantId, at],
 	);
+	if (updated) return toTenant(updated);
+	// A second statement, so it reads the row as another sign-in just left it.
+	const current = await one(db, `select ${TENANT_COLS} from tenants where id = $1`, [tenantId]);
+	if (!current) throw new Error(`tenant ${tenantId} does not exist`);
+	return toTenant(current);
 }
 
 // ---- retention and the day-91 delete (C1 req 6, D25) ----

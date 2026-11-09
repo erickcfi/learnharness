@@ -53,7 +53,7 @@ Use one `postgres` client per server process. `db.transaction(async (tx) => { ..
 
 Main entry points by package:
 
-- **Front door:** `createStudentAccount`, `getTenantByClerkUserId`, `markTenantReady`, `hasRole`, `getRoles`.
+- **Front door:** `ensureStudentAccount`, `getAccountByClerkUserId`, `getTenantByClerkUserId`, `markTenantReady`, `hasRole`, `getRoles`. The front door runs these at every sign-in, so `ensureStudentAccount` and `markTenantReady` are safe to repeat and to run twice at once. `ensureStudentAccount` keeps the first 18+ date. `markTenantReady` changes only a tenant still in provisioning. (`createStudentAccount` throws on a second call. It is kept for tests and one-off scripts.)
 - **Metering:** `recordModelUsage`, `recordSearch`, `rollingModelCost`, `getOwnerSettings`, `openAlert`, `pauseTenant`, `isPaused`.
 - **Stripe webhooks:** `processStripeEventOnce` (wraps the handler in one transaction with the event ID), `upsertSubscription`, `upsertInvoice`, `setStripeCustomerId`, `getTenantByStripeCustomerId`, `hashEmailForTrial`, `isTrialUsed`, `claimTrial`, `startRetention`, `endRetention`.
 - **Dashboard:** `listTenantOverview`, `usageTotals`, `revenueTotals`, `studySummary`, `listOpenAlerts`, `clearAlert`, `unpauseTenant`, `updateOwnerSettings`, `canShowSessionText`, `grantConsent`, `revokeConsent`, `saveTopicLabel`.

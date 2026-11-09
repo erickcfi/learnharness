@@ -79,6 +79,76 @@ describe("accounts and tenants", () => {
 		assert.equal(ready.readyAt?.toISOString(), at.toISOString());
 	});
 
+	it("markTenantReady is safe to repeat: a ready tenant comes back unchanged", async () => {
+		const { tenant } = await student();
+		const first = new Date("2026-11-08T10:00:00Z");
+		await dbm.markTenantReady(t.db, tenant.id, first);
+		const again = await dbm.markTenantReady(t.db, tenant.id, new Date("2026-11-09T10:00:00Z"));
+		assert.equal(again.status, "ready");
+		assert.equal(again.readyAt?.toISOString(), first.toISOString());
+	});
+
+	it("markTenantReady leaves a tenant in retention as it is", async () => {
+		const { tenant } = await student();
+		await dbm.markTenantReady(t.db, tenant.id);
+		const kept = await dbm.startRetention(t.db, tenant.id, new Date("2026-12-01T00:00:00Z"));
+		const after91 = await dbm.markTenantReady(t.db, tenant.id);
+		assert.deepEqual(after91, kept);
+		assert.equal(after91.status, "retention");
+	});
+
+	it("markTenantReady throws for a tenant that does not exist", async () => {
+		await assert.rejects(dbm.markTenantReady(t.db, "00000000-0000-4000-8000-000000000000"));
+	});
+
+	it("ensureStudentAccount makes the account and its tenant on the first call", async () => {
+		const id = clerkId();
+		const { account, tenant } = await dbm.ensureStudentAccount(t.db, { clerkUserId: id, age18ConfirmedAt: AGE });
+		assert.equal(account.clerkUserId, id);
+		assert.equal(account.age18ConfirmedAt.toISOString(), AGE.toISOString());
+		assert.equal(tenant.accountId, account.id);
+		assert.equal(tenant.folder, `tenants/${tenant.id}`);
+		assert.equal(tenant.status, "provisioning");
+		assert.deepEqual(await dbm.getTenantByClerkUserId(t.db, id), tenant);
+	});
+
+	it("ensureStudentAccount is safe to repeat and keeps the first 18+ date", async () => {
+		const id = clerkId();
+		const first = await dbm.ensureStudentAccount(t.db, { clerkUserId: id, age18ConfirmedAt: AGE });
+		const again = await dbm.ensureStudentAccount(t.db, { clerkUserId: id, age18ConfirmedAt: new Date(AGE.getTime() + DAY) });
+		assert.deepEqual(again, first);
+		assert.equal(again.account.age18ConfirmedAt.toISOString(), AGE.toISOString());
+		assert.equal((await t.db.query("select 1 from accounts where clerk_user_id = $1", [id])).length, 1);
+		assert.equal((await t.db.query("select 1 from tenants where account_id = $1", [first.account.id])).length, 1);
+	});
+
+	it("two ensureStudentAccount calls at once give one account and one tenant", async () => {
+		const id = clerkId();
+		const [a, b] = await Promise.all([
+			dbm.ensureStudentAccount(t.db, { clerkUserId: id, age18ConfirmedAt: AGE }),
+			dbm.ensureStudentAccount(t.db, { clerkUserId: id, age18ConfirmedAt: new Date(AGE.getTime() + DAY) }),
+		]);
+		assert.deepEqual(a, b);
+		assert.equal((await t.db.query("select 1 from accounts where clerk_user_id = $1", [id])).length, 1);
+	});
+
+	it("ensureStudentAccount returns a tenant that is already ready as it is", async () => {
+		const id = clerkId();
+		const { tenant } = await dbm.ensureStudentAccount(t.db, { clerkUserId: id, age18ConfirmedAt: AGE });
+		const ready = await dbm.markTenantReady(t.db, tenant.id);
+		const again = await dbm.ensureStudentAccount(t.db, { clerkUserId: id, age18ConfirmedAt: AGE });
+		assert.deepEqual(again.tenant, ready);
+	});
+
+	it("ensureStudentAccount gives a tenant to an account that has none, keeping its date", async () => {
+		const id = clerkId();
+		const account = await dbm.createAccount(t.db, { clerkUserId: id, age18ConfirmedAt: AGE });
+		const got = await dbm.ensureStudentAccount(t.db, { clerkUserId: id, age18ConfirmedAt: new Date(AGE.getTime() + DAY) });
+		assert.deepEqual(got.account, account);
+		assert.equal(got.tenant.accountId, account.id);
+		assert.equal(got.tenant.status, "provisioning");
+	});
+
 	it("listTenants includes every tenant", async () => {
 		const { tenant } = await student();
 		const all = await dbm.listTenants(t.db);

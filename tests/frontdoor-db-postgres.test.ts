@@ -8,7 +8,7 @@
  * server where it may create roles and create and drop a scratch database,
  * for example a local superuser over the socket:
  *
- *     LH_TEST_PG=1 PGHOST=/var/run/postgresql npx tsx --test tests/frontdoor-db-postgres.test.ts
+ *     LH_TEST_PG=1 PGHOST=/var/run/postgresql PGDATABASE=postgres npx tsx --test tests/frontdoor-db-postgres.test.ts
  *
  * CI has no such server, so it skips there. Never point it at Supabase.
  */
@@ -111,5 +111,21 @@ describe("real Postgres through postgres.js", { skip: !enabled && "set LH_TEST_P
 		assert.equal((await dbm.getTenantOverview(db, tenant.id))?.dashboardStatus, "none");
 		assert.equal((await dbm.getOwnerSettings(db)).autopauseUsd, 89);
 		assert.equal(await dbm.deleteTenantAndAccount(db, tenant.id), true);
+	});
+
+	it("ensureStudentAccount and markTenantReady stay safe when two sign-ins race", async () => {
+		for (let round = 0; round < 5; round++) {
+			const clerkUserId = `user_pg_race_${round}`;
+			const [a, b] = await Promise.all([
+				dbm.ensureStudentAccount(db, { clerkUserId, age18ConfirmedAt: AGE }),
+				dbm.ensureStudentAccount(db, { clerkUserId, age18ConfirmedAt: new Date(AGE.getTime() + 1000) }),
+			]);
+			assert.deepEqual(a, b);
+			assert.equal((await db.query("select 1 from accounts where clerk_user_id = $1", [clerkUserId])).length, 1);
+			const [r1, r2] = await Promise.all([dbm.markTenantReady(db, a.tenant.id), dbm.markTenantReady(db, a.tenant.id)]);
+			assert.equal(r1.status, "ready");
+			assert.deepEqual(r1, r2);
+			assert.equal(await dbm.deleteTenantAndAccount(db, a.tenant.id), true);
+		}
 	});
 });
