@@ -3,7 +3,7 @@
 North Aero Ground Tutor's front door (PRD X1, X5, C1). One Node process that every request reaches first. It:
 
 1. Serves its own pages under `/account` (sign in, sign up with the 18+ checkbox, confirm age, sign out). Next.js 16, with Clerk.
-2. Checks the login on every other request. Without the front door's login cookie, `/api` gets 401 and a page redirects to `/account/sign-in`.
+2. Checks the login on every other request. Without the front door's login cookie, `/api` gets 401 and a page redirects to `/account/sign-in`. The exceptions are the public pages (W2-11, `marketing/README.md`): the landing page at `/` for visitors with no login, and `/how-it-works`, `/help`, `/legal/*`, `/robots.txt`, `/sitemap.xml` for everyone.
 3. Finds the student's tenant, and starts the tenant's own LearnHarness server if it is not running (one per tenant, on 127.0.0.1, no idle stop).
 4. Passes the request through, streams included, without buffering.
 
@@ -21,8 +21,10 @@ Decision and spike: `docs/decisions/2026-11-08-x5-front-door-spike.md`.
 | `db/`, `supabase/` | The database module and its migrations. See `db/README.md`. |
 | `production-safety/`, `log-hygiene/`, `settings-template/`, `source-link/` | Lockdown pieces. |
 | `records/` | The printed study record. |
-| `app/account/` | The front door's Next.js pages. |
-| `proxy.ts` | Clerk's middleware, for the front door's pages only. |
+| `app/account/` | The front door's Next.js pages. Clerk is set up in `app/account/layout.tsx` only. |
+| `app/(public)/`, `marketing/` | The public pages: landing, How it works, Help, legal placeholders (W2-11). Text in `marketing/copy.ts`. |
+| `plans/` | Prices and trial terms, the one place they live. |
+| `proxy.ts` | Clerk's middleware, for the `/account` pages only. |
 
 Tests: `tests/frontdoor-*.test.ts` (run by the root `npm test`).
 
