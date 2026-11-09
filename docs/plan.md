@@ -6,20 +6,20 @@ This plan turns `docs/PRD.md` into ordered work. The cards live in `docs/kanban.
 
 1. **Load context.** Read `CLAUDE.md`, `AGENTS.md`, PRD sections 1 to 5 and the sections the package names, this plan, and the package's cards. Done when you can name the package's PRD IDs and its done criteria.
 2. **Work in the package's worktree.** The coordinating session creates a git worktree at `~/lh-wt/<package>` on a branch named after the package, for example `w1-front-door`, installs packages, and moves the package to In progress.
-3. **Ask first.** List every design or implementation choice that the PRD and the cards do not settle. Ask the Owner about all of them in one batch before you write code, one question per call (N10). Done when no open choice remains and the Owner has approved the plan.
+3. **Ask first.** List every design or implementation choice that the PRD and the cards do not settle. Send all of them, in one batch with a recommendation for each, to the coordinating session before you write code (N10). Since 2026-11-08 the coordinating session decides build questions for the Owner and logs each decision. It still brings money, outside accounts, price, legal text and big student-facing changes to the Owner. Done when no open choice remains and the plan is approved.
 4. **Red.** Write the package's acceptance tests. Run them and see each one fail for the expected reason.
 5. **Green.** Write the code until the package's tests pass.
 6. **Gate.** Run `npm run typecheck`, `npm test`, and `npm run lint`. Every upstream test stays green. Done when all three commands pass.
 7. **Log upstream edits.** If you changed any upstream file, add a row to `docs/upstream-changes.md` that names the file and the reason.
-8. **Hand off.** Commit on the package's branch and report: the gate output, the commits, new dependencies, upstream files edited, and anything blocked. The coordinating session pushes the branch, opens the pull request with the gate output in it, and moves the package to Review. The Owner merges.
+8. **Hand off.** Commit on the package's branch and report: the gate output, the commits, new dependencies, upstream files edited, and anything blocked. The coordinating session reruns the gate at that commit, pushes it, and opens the pull request with the gate output in it. It merges the pull request once every GitHub check passes (Owner's standing OK, 2026-11-08), then moves the package to Done.
 
 ## Parallel agents
 
 - Each package has its own worktree and branch, cut from `origin/main`. An agent stays in its own worktree and its own files.
 - The `frontdoor/` app skeleton (`package.json`, `tsconfig.json`, Next.js files) belongs to the front door package. Other packages put framework-free code in `frontdoor/<area>/`, and their tests in `tests/frontdoor-<area>-*.test.ts`, so the root `npm test` runs them.
 - Agents do not edit `docs/kanban.md` or `docs/plan.md`. The coordinating session keeps both.
-- Agents add npm dependencies only when needed, and list them in their report. Branches merge one after another. The coordinating session rebases the next branch onto `main` and regenerates `package-lock.json` when two branches change it.
-- Agents push nothing. The coordinating session pushes finished branches and opens pull requests (Owner's standing OK, 2026-11-08). Accounts and settings at outside services (Railway, Supabase, Clerk, Stripe, AWS, the Claude Console) still need the Owner's yes each time.
+- Agents add npm dependencies only when needed, and list them in their report. Branches merge one after another. The coordinating session merges `main` into the next branch, reruns the gate, and regenerates `package-lock.json` when two branches change it.
+- Agents push nothing. The coordinating session pushes finished branches, opens pull requests, and merges them once every check passes (Owner's standing OK, 2026-11-08). Accounts and settings at outside services (Railway, Supabase, Clerk, Stripe, AWS, the Claude Console) still need the Owner's yes each time.
 
 ## Branches, upstream, and tags
 
