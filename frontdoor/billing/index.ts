@@ -22,7 +22,7 @@ export {
 } from "./config.ts";
 export { type BillingCore, createBillingCore, siteUrlFrom } from "./core.ts";
 export { type BillingGatewayHook, type BillingRequestContext, createBillingHook, createBillingOffHook, isTurnRequest } from "./gateway-hook.ts";
-export { databaseRetention, type EmailMessage, type EmailSender, RecordingEmailSender, type RetentionHooks } from "./hooks.ts";
+export { databaseRetention, type EmailMessage, type EmailSender, type RetentionHooks } from "./hooks.ts";
 export { couponKind, type TenantBilling, tenantBilling, trialConversion } from "./reporting.ts";
 export { createStripeClient, type StripeApi } from "./stripe-api.ts";
 export type { BillingStatus, BillingView, BillingViewOn } from "./view.ts";

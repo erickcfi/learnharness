@@ -7,7 +7,7 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import type Stripe from "stripe";
-import { billingEnvProblems, loadBillingConfig } from "../frontdoor/billing/config.ts";
+import { assertBillingEnv, billingEnvProblems, loadBillingConfig } from "../frontdoor/billing/config.ts";
 import { siteUrlFrom } from "../frontdoor/billing/core.ts";
 import { confirmationEmail, discountedCents, renewalNoticeEmail } from "../frontdoor/billing/emails.ts";
 import { tenantBilling, trialConversion } from "../frontdoor/billing/reporting.ts";
@@ -100,7 +100,7 @@ describe("idempotence and order (C2 req 9)", () => {
 	it("a failure leaves no trace and Stripe's retry works", async () => {
 		const { events, tenantId } = await pendingTrial("retry");
 		const completed = events.find((e) => e.type === "checkout.session.completed") as Stripe.Event;
-		h.email.failNext = true;
+		h.email.failNext();
 		const { payload, header } = h.stripe.sign(completed);
 		const first = await post(payload, header);
 		assert.equal(first.status, 500);
@@ -179,7 +179,7 @@ describe("the annual renewal notice (California automatic renewal law)", () => {
 			assert.equal(notice?.to, "annual.person@example.com");
 			assert.match(notice?.text ?? "", /renews automatically on/);
 			assert.match(notice?.text ?? "", /charged \$470\.40 for the next 12 months/);
-			assert.match(notice?.text ?? "", /How to cancel/);
+			assert.match(notice?.text ?? "", /how to cancel/i);
 			assert.match(notice?.text ?? "", /https:\/\/ground\.test\/account\/plans/);
 			assert.ok(!other.email.sent.some((x) => x.kind === "annual-renewal-notice" && x.to === "monthly.person@example.com"));
 		} finally {
@@ -192,7 +192,7 @@ describe("the annual renewal notice (California automatic renewal law)", () => {
 		assert.equal(discountedCents(6900, null), 6900);
 		const start = confirmationEmail({ to: "a@b.c", siteUrl: "https://x", planId: "quarterly", percentOff: null, trialEndsAt: null, nextChargeAt: new Date("2027-02-09T00:00:00Z"), chargedTodayCents: 17900, reason: "start" });
 		assert.match(start.text, /3 months, \$179 every 3 months/);
-		assert.match(start.text, /renews automatically on February 9, 2027/);
+		assert.match(start.text, /Next charge: February 9, 2027/);
 		const notice = renewalNoticeEmail({ to: "a@b.c", siteUrl: "https://x", amountCents: 58800, renewsAt: new Date("2027-11-09T00:00:00Z"), months: 12 });
 		for (const text of [start.text, notice.text, start.subject, notice.subject]) assert.equal(text.includes("—"), false);
 	});
@@ -205,7 +205,7 @@ describe("billing's start checks", () => {
 		for (const name of ["STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "LH_TRIAL_HASH_KEY"]) assert.match(problems, new RegExp(name));
 		assert.deepEqual(billingEnvProblems({ ...prod, FRONTDOOR_BILLING: "off" }), []);
 		assert.deepEqual(billingEnvProblems({ NODE_ENV: "development" }), []);
-		assert.equal(STARTUP_CHECKS.length, 4, "billing's check is in the front door's start checks");
+		assert.ok(STARTUP_CHECKS.includes(assertBillingEnv), "billing's check is in the front door's start checks");
 	});
 
 	it("checks the shapes without printing values", () => {
@@ -222,7 +222,7 @@ describe("billing's start checks", () => {
 	it("loads nothing when billing is off or unset", () => {
 		assert.equal(loadBillingConfig({ FRONTDOOR_BILLING: "off", STRIPE_SECRET_KEY: "sk_test_x", STRIPE_WEBHOOK_SECRET: "whsec_x", LH_TRIAL_HASH_KEY: "k".repeat(32) }), null);
 		assert.equal(loadBillingConfig({}), null);
-		assert.equal(siteUrlFrom({ FRONTDOOR_AUTHORIZED_PARTIES: "https://staging.example, https://x" }), "https://staging.example");
+		assert.equal(siteUrlFrom({ FRONTDOOR_PUBLIC_URL: "https://staging.example/" }), "https://staging.example");
 		assert.equal(siteUrlFrom({}), "https://ground.flynorthaero.com");
 	});
 });

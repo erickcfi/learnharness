@@ -18,6 +18,9 @@
  *  - Metering: the meter listens on 127.0.0.1 on a free port. Each tenant
  *    server gets its pass key and the meter's address, never a real key.
  *    The real Anthropic and Tavily keys stay in this process.
+ *  - Email reports (W2-10, reports/wiring.ts): the report loop and the
+ *    /account/reports and /account/unsubscribe pages. The SES keys stay in
+ *    this process too.
  *
  * Tenant servers still get only the supervisor's short allowlist from this
  * process's environment, plus the two sections above (tenants/supervisor.ts).
@@ -31,9 +34,10 @@ import { billingOff, loadBillingConfig } from "../billing/config.ts";
 import { clerkEmailLookup, type EmailLookup } from "../billing/clerk-email.ts";
 import { createBillingCore, siteUrlFrom } from "../billing/core.ts";
 import { type BillingGatewayHook, createBillingHook, createBillingOffHook } from "../billing/gateway-hook.ts";
-import { databaseRetention, type EmailSender, type RetentionHooks } from "../billing/hooks.ts";
+import { databaseRetention, type RetentionHooks } from "../billing/hooks.ts";
 import { createStripeClient, type StripeApi } from "../billing/stripe-api.ts";
 import { type Db, markTenantReady } from "../db/index.ts";
+import type { EmailSender } from "../email/sender.ts";
 import type { ClerkGateway } from "../gateway/auth.ts";
 import { createClerkGateway } from "../gateway/clerk.ts";
 import { createGateway } from "../gateway/handler.ts";
@@ -43,6 +47,8 @@ import { createMemoryMeteringStore } from "../metering/store.ts";
 import { createSupabaseMeteringStore, type DurableMeteringStore } from "../metering/supabase-store.ts";
 import { meteringEnvForTenant } from "../metering/tenant-env.ts";
 import { tenantServerEnv } from "../production-safety/index.ts";
+import { tenantFetchStandIn } from "../reports/tenant-record.ts";
+import { type EmailReports, type EmailReportsOptions, startEmailReports } from "../reports/wiring.ts";
 import { fileAccessTemplate, libraryDir, tenantLockdownEnv } from "../settings-template/file-access.ts";
 import { type AccountStore, InMemoryAccountStore } from "../tenants/accounts.ts";
 import { provisionTenant } from "../tenants/provisioning.ts";
@@ -69,12 +75,14 @@ export interface FrontDoorOptions {
 	db?: Db;
 	/** Tests only: where the meter forwards (fakes on 127.0.0.1). Never set from the environment. */
 	upstream?: { anthropicBaseUrl?: string; tavilyBaseUrl?: string };
+	/** Tests only: the email sender and student directory for the reports (W2-10). */
+	email?: Pick<EmailReportsOptions, "sender" | "students">;
 	/** W2-8. Default: Stripe's client for STRIPE_SECRET_KEY. Tests pass the stand-in (billing/testing.ts). */
 	stripe?: StripeApi;
 	/** W2-8. Default: Clerk's primary email for the user. */
 	emailLookup?: EmailLookup;
-	/** W2-8. Sign-up confirmations and annual renewal notices. Default: none (each skipped email is logged). The master wires w2-email's sender. */
-	billingEmail?: EmailSender;
+	/** W2-8. Default: the report emails' sender (W2-10), so billing email uses the same SES identity. */
+	billingEmail?: EmailSender | null;
 	/** W2-8. Default: the database's retention calls. The master wires w2-pause's startRetention. */
 	retention?: RetentionHooks;
 	/** Operational lines. Never given session text or email addresses. */
@@ -86,6 +94,8 @@ export interface FrontDoor {
 	url: string;
 	/** Where tenant servers reach the meter. */
 	meterUrl: string;
+	/** Email reports (W2-10). */
+	email: Pick<EmailReports, "mode" | "sender" | "runner">;
 	/** Stops tenant servers, writes every usage row it still holds, and closes. */
 	close(): Promise<void>;
 }
@@ -156,6 +166,24 @@ export async function startFrontDoor(options: FrontDoorOptions): Promise<FrontDo
 		onExit: (tenantId, code, signal) => log(`tenant ${tenantId} server stopped (code ${code}, signal ${signal})`),
 	});
 
+	const clerk = options.clerk ?? createClerkGateway(config.clerk);
+	// Email reports (W2-10): the report loop and the report pages.
+	const email = startEmailReports({
+		env: options.env,
+		db: db ?? null,
+		accounts,
+		clerk,
+		clerkSettings: config.clerk,
+		sessionSecret: config.sessionSecret,
+		secureCookies: config.secureCookies,
+		trustForwardedHeaders: config.trustForwardedHeaders,
+		// At the w2-isolation merge: (tenantId, path, init) => supervisor.tenantFetch(tenantId, path, init).
+		tenantFetch: tenantFetchStandIn((tenantId) => supervisor.ensureRunning(tenantId)),
+		// At the w2-dashboard merge, add: sittings: <frontdoor/study-time's ended-sittings export>.
+		...options.email,
+		log,
+	});
+
 	// Billing (W2-8): Stripe, the plans screen and the trial gate. Off with
 	// FRONTDOOR_BILLING=off, or (outside production only) with no Stripe
 	// settings or no database; production refuses to start without them.
@@ -166,7 +194,8 @@ export async function startFrontDoor(options: FrontDoorOptions): Promise<FrontDo
 			db,
 			stripe: options.stripe ?? createStripeClient(billingConfig.secretKey),
 			retention: options.retention ?? databaseRetention(db),
-			email: options.billingEmail ?? null,
+			// The report emails' sender (SES in production when set up). None: each skipped billing email is logged.
+			email: options.billingEmail !== undefined ? options.billingEmail : email.sender,
 			webhookSecret: billingConfig.webhookSecret,
 			trialHashKey: billingConfig.trialHashKey,
 			siteUrl: siteUrlFrom(options.env),
@@ -180,7 +209,7 @@ export async function startFrontDoor(options: FrontDoorOptions): Promise<FrontDo
 
 	const gateway = createGateway({
 		accounts,
-		clerk: options.clerk ?? createClerkGateway(config.clerk),
+		clerk,
 		billing,
 		supervisor,
 		provision: async (tenantId) => {
@@ -192,6 +221,7 @@ export async function startFrontDoor(options: FrontDoorOptions): Promise<FrontDo
 		secureCookies: config.secureCookies,
 		trustForwardedHeaders: config.trustForwardedHeaders,
 		frontDoorApp: options.frontDoorApp,
+		reportPages: email.reportPages,
 		log,
 	});
 
@@ -204,9 +234,11 @@ export async function startFrontDoor(options: FrontDoorOptions): Promise<FrontDo
 	return {
 		url,
 		meterUrl,
+		email: { mode: email.mode, sender: email.sender, runner: email.runner },
 		close() {
 			closing ??= (async () => {
 				const stopped = closeServer(server);
+				await email.close();
 				await supervisor.stopAll();
 				await stopped;
 				// Every usage write already started, then every row still waiting.

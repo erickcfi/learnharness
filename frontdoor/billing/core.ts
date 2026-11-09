@@ -3,6 +3,7 @@
  * with createBillingCore(); tests build one with the Stripe stand-in.
  */
 import type { Db } from "../db/index.ts";
+import { SITE_ORIGIN } from "../marketing/site.ts";
 import { AccessCache } from "./access.ts";
 import { PriceBook } from "./catalog.ts";
 import type { EmailSender, RetentionHooks } from "./hooks.ts";
@@ -58,10 +59,8 @@ export function createBillingCore(o: BillingCoreOptions): BillingCore {
 	};
 }
 
-/** The site address for emails: FRONTDOOR_PUBLIC_URL, else the first FRONTDOOR_AUTHORIZED_PARTIES origin, else the launch address. */
+/** The site address for emails, as the report emails use it (email/config.ts): FRONTDOOR_PUBLIC_URL, else the launch address. */
 export function siteUrlFrom(env: Readonly<Record<string, string | undefined>>): string {
 	const explicit = env.FRONTDOOR_PUBLIC_URL?.trim();
-	if (explicit) return explicit;
-	const first = (env.FRONTDOOR_AUTHORIZED_PARTIES ?? "").split(",")[0]?.trim();
-	return first || "https://ground.flynorthaero.com";
+	return (explicit || SITE_ORIGIN).replace(/\/+$/, "");
 }

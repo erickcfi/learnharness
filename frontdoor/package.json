@@ -12,6 +12,7 @@
 		"stripe:setup": "tsx billing/setup-cli.ts"
 	},
 	"dependencies": {
+		"@aws-sdk/client-sesv2": "^3.1164.0",
 		"@clerk/backend": "^3.27.0",
 		"@clerk/nextjs": "^7.9.25",
 		"jose": "^6.2.12",

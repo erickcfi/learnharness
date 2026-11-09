@@ -58,7 +58,9 @@ describe("Buy now (C2 req 4, D12)", () => {
 		assert.ok(Math.abs(renews - (h.stripe.now() + 365 * DAY)) < 2 * DAY, "renews in a year");
 
 		const mail = h.email.sent.filter((m) => m.to === s.email).at(-1);
-		assert.match(mail?.text ?? "", /Your North Aero Ground Tutor plan has changed/);
+		assert.match(mail?.text ?? "", /Your plan has changed/);
+		assert.equal(mail?.subject, "Your North Aero Ground Tutor plan has changed");
+		assert.match(mail?.html ?? "", /Charged today/);
 		assert.match(mail?.text ?? "", /Annual, \$588 every 12 months/);
 		assert.match(mail?.text ?? "", /Charged today: \$588/);
 	});

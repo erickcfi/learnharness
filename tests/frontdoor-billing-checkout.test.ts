@@ -95,7 +95,7 @@ describe("Checkout with the trial (P4-02, C2 req 1 and 2)", () => {
 		assert.equal(mail?.kind, "billing-confirmation");
 		assert.match(mail?.text ?? "", /Your trial lasts 7 days/);
 		assert.match(mail?.text ?? "", /charged \$69 for the Monthly plan/);
-		assert.match(mail?.text ?? "", /How to cancel/);
+		assert.match(mail?.text ?? "", /how to cancel/i);
 		const view = await state(s);
 		assert.equal(view.status, "trialing");
 		assert.equal(view.trialStudyLimitMinutes, 120);

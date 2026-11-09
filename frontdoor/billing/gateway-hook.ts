@@ -20,6 +20,7 @@
  * meter refuses model calls it cannot account for (metering/supabase-store.ts).
  */
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { normalizeEmailAddress } from "../email/address.ts";
 import { type Access } from "./access.ts";
 import { billingState, buyNow, openPortal, startCheckout, type ActionResult } from "./actions.ts";
 import { isPlanId } from "./catalog.ts";
@@ -133,7 +134,7 @@ export function createBillingHook(core: BillingCore, options: BillingHookOptions
 		const action = ctx.pathname.slice(BILLING_PREFIX.length + 1);
 		const url = new URL(`http://front.door${ctx.target}`);
 		if (action === "state" && isRead(req)) {
-			const email = await options.emailFor(ctx.userId).catch(() => null);
+			const email = normalizeEmailAddress(await options.emailFor(ctx.userId).catch(() => null));
 			const view = await billingState(core, {
 				tenantId: ctx.tenantId,
 				email,
@@ -156,7 +157,7 @@ export function createBillingHook(core: BillingCore, options: BillingHookOptions
 			if (action === "portal") return finish(res, await openPortal(core, { tenantId: ctx.tenantId, origin: ctx.origin }), ctx.setCookie);
 			if (!isPlanId(plan)) return finish(res, { error: "bad-plan" }, ctx.setCookie);
 			if (action === "buy-now") return finish(res, await buyNow(core, { tenantId: ctx.tenantId, planId: plan, agreed: form.get("agree") === "yes" }), ctx.setCookie);
-			const email = await options.emailFor(ctx.userId).catch(() => null);
+			const email = normalizeEmailAddress(await options.emailFor(ctx.userId).catch(() => null));
 			if (!email) return finish(res, { error: "unavailable" }, ctx.setCookie);
 			return finish(res, await startCheckout(core, { tenantId: ctx.tenantId, email, planId: plan, origin: ctx.origin }), ctx.setCookie);
 		} catch (error) {

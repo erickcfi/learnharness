@@ -9,12 +9,13 @@ import type { AddressInfo } from "node:net";
 import { STUDENT_COUPON_ID, TESTER_COUPON_ID, WEBHOOK_PATH } from "../frontdoor/billing/config.ts";
 import { type BillingCore, createBillingCore } from "../frontdoor/billing/core.ts";
 import { createBillingHook } from "../frontdoor/billing/gateway-hook.ts";
-import { RecordingEmailSender, type RetentionHooks } from "../frontdoor/billing/hooks.ts";
+import type { RetentionHooks } from "../frontdoor/billing/hooks.ts";
 import { applySetup, planSetup } from "../frontdoor/billing/setup.ts";
 import { type CheckoutCompletion, type StandInOptions, StripeStandIn } from "../frontdoor/billing/testing.ts";
 import type { TrialLimits } from "../frontdoor/billing/trial.ts";
 import * as dbm from "../frontdoor/db/index.ts";
 import { createTestDb, type TestDb } from "../frontdoor/db/testing.ts";
+import { MemoryEmailSender } from "../frontdoor/email/sender.ts";
 import { createGateway } from "../frontdoor/gateway/handler.ts";
 import { SESSION_COOKIE, signSession } from "../frontdoor/gateway/session.ts";
 import { SupabaseAccountStore } from "../frontdoor/tenants/supabase-accounts.ts";
@@ -44,7 +45,7 @@ export interface Harness {
 	db: dbm.Db;
 	stripe: StripeStandIn;
 	core: BillingCore;
-	email: RecordingEmailSender;
+	email: MemoryEmailSender;
 	retentionCalls: { kind: "start" | "end"; tenantId: string; at?: Date }[];
 	tenantHits: { method: string; url: string; headers: IncomingHttpHeaders }[];
 	base: string;
@@ -71,7 +72,7 @@ export async function startHarness(options: { standIn?: Partial<StandInOptions>;
 	stripe.takeEvents();
 	stripe.calls.length = 0;
 
-	const email = new RecordingEmailSender();
+	const email = new MemoryEmailSender();
 	const retentionCalls: Harness["retentionCalls"] = [];
 	const retention: RetentionHooks = {
 		async startRetention(tenantId, at, tx) {

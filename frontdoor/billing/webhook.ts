@@ -33,6 +33,8 @@ import {
 	upsertInvoice,
 	upsertSubscription,
 } from "../db/index.ts";
+import { normalizeEmailAddress } from "../email/address.ts";
+import { InvalidEmailMessageError } from "../email/sender.ts";
 import type { PlanId } from "../plans/index.ts";
 import { COUPONS, isPlanId, planIdForLookupKey } from "./catalog.ts";
 import type { BillingCore } from "./core.ts";
@@ -108,9 +110,21 @@ async function send(core: BillingCore, tenantId: string, message: EmailMessage):
 		core.log(`billing email not sent (no email sender wired): ${message.kind} for tenant ${tenantId}`);
 		return;
 	}
-	await core.email.send(message);
+	try {
+		await core.email.send(message);
+	} catch (error) {
+		// A bad address will never send: log it and go on. Anything else (SES down) fails the event, so Stripe retries.
+		if (error instanceof InvalidEmailMessageError) {
+			core.log(`billing email not sent (${error.message}): ${message.kind} for tenant ${tenantId}`);
+			return;
+		}
+		throw error;
+	}
 	core.log(`billing email sent: ${message.kind} for tenant ${tenantId}`);
 }
+
+/** The address Stripe holds, trimmed and checked, or null. */
+const cleanAddress = (value: string | null | undefined) => normalizeEmailAddress(value);
 
 /** Reads the subscription from Stripe and writes it. Starts or ends retention when it ended or came back. */
 export async function syncSubscription(core: BillingCore, tx: Db, subscriptionId: string, createdAt: Date): Promise<{ tenant: Tenant; sub: Stripe.Subscription } | null> {
@@ -136,13 +150,14 @@ export async function syncSubscription(core: BillingCore, tx: Db, subscriptionId
 	const plan = planOf(sub);
 	const beforePlan = before?.plan === "three_month" ? "quarterly" : before?.plan;
 	if (applied && plan && isPlanId(beforePlan) && beforePlan !== plan && LIVE_STATUSES.has(sub.status) && sub.status !== "trialing") {
-		const to = await customerEmailFromInvoice(core.stripe, sub);
+		const to = cleanAddress(await customerEmailFromInvoice(core.stripe, sub));
 		if (to) {
 			const item = mainItem(sub);
 			await send(
 				core,
 				tenant.id,
 				confirmationEmail({
+					tenantId: tenant.id,
 					to,
 					siteUrl: core.siteUrl,
 					planId: plan,
@@ -198,7 +213,7 @@ async function checkoutCompleted(core: BillingCore, tx: Db, session: Stripe.Chec
 	if (!subscriptionId) return;
 	let sub = await retrieveSubscription(core.stripe, subscriptionId, ["default_payment_method"]);
 	await upsertSubscription(tx, subscriptionInput(sub, tenant.id, createdAt));
-	const email = session.customer_details?.email ?? null;
+	const email = cleanAddress(session.customer_details?.email);
 
 	let refused = trialRefusal(sub);
 	if (sub.status === "trialing" && refused === null) {
@@ -223,6 +238,7 @@ async function checkoutCompleted(core: BillingCore, tx: Db, session: Stripe.Chec
 				core,
 				tenant.id,
 				confirmationEmail({
+					tenantId: tenant.id,
 					to: email,
 					siteUrl: core.siteUrl,
 					planId: plan,
@@ -261,9 +277,10 @@ async function upcomingRenewal(core: BillingCore, tx: Db, inv: Stripe.Invoice): 
 	const tenant = await tenantForCustomer(tx, idOf(sub.customer));
 	if (!tenant) return;
 	const renewsAt = dateOf(mainItem(sub)?.current_period_end) ?? dateOf(inv.next_payment_attempt);
-	if (!inv.customer_email || !renewsAt) {
-		core.log(`renewal notice for tenant ${tenant.id} not sent: ${inv.customer_email ? "no renewal date" : "no email address on the invoice"}`);
+	const to = cleanAddress(inv.customer_email);
+	if (!to || !renewsAt) {
+		core.log(`renewal notice for tenant ${tenant.id} not sent: ${to ? "no renewal date" : "no usable email address on the invoice"}`);
 		return;
 	}
-	await send(core, tenant.id, renewalNoticeEmail({ to: inv.customer_email, siteUrl: core.siteUrl, amountCents: inv.amount_due, renewsAt, months }));
+	await send(core, tenant.id, renewalNoticeEmail({ tenantId: tenant.id, to, siteUrl: core.siteUrl, amountCents: inv.amount_due, renewsAt, months }));
 }
