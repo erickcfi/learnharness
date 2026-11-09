@@ -4,6 +4,7 @@ Every upstream file that the fork changes gets one row here. Merges from upstrea
 
 | File | Card | Reason |
 |---|---|---|
+| `.github/workflows/ci.yml` | CI | The Standalone jobs download Electron up front with up to 5 tries and growing waits, before the native renderer tests. GitHub's release downloads timed out (HTTP 504) many times on 2026-11-08 and 2026-11-09, failing the job before any test ran (Owner's OK, 2026-11-09). |
 | `package.json` | P1-02 | Adds `"workspaces": ["frontdoor"]`, so one `npm ci` installs the front door's packages too (Owner, 2026-11-08). |
 | `package-lock.json` | P1-02 | Lock entries for the `frontdoor` workspace and its new packages (`@clerk/nextjs`, `@clerk/backend`). |
 | `tsconfig.json` | P1-02 | Excludes `frontdoor/.next` (the front door's build output) from the root type check. |
