@@ -19,6 +19,10 @@
  *    server gets its pass key and the meter's address, never a real key.
  *    The real Anthropic and Tavily keys stay in this process.
  *
+ *  - Email reports (W2-10, reports/wiring.ts): the report loop, the
+ *    /account/reports and /account/unsubscribe pages, and the Owner alert
+ *    email. The SES keys stay in this process too.
+ *
  * Tenant servers still get only the supervisor's short allowlist from this
  * process's environment, plus the two sections above (tenants/supervisor.ts).
  */
@@ -37,6 +41,7 @@ import { createMemoryMeteringStore } from "../metering/store.ts";
 import { createSupabaseMeteringStore, type DurableMeteringStore } from "../metering/supabase-store.ts";
 import { meteringEnvForTenant } from "../metering/tenant-env.ts";
 import { tenantServerEnv } from "../production-safety/index.ts";
+import { type EmailReports, type EmailReportsOptions, startEmailReports } from "../reports/wiring.ts";
 import { fileAccessTemplate, libraryDir, tenantLockdownEnv } from "../settings-template/file-access.ts";
 import { type AccountStore, InMemoryAccountStore } from "../tenants/accounts.ts";
 import { provisionTenant } from "../tenants/provisioning.ts";
@@ -63,6 +68,8 @@ export interface FrontDoorOptions {
 	db?: Db;
 	/** Tests only: where the meter forwards (fakes on 127.0.0.1). Never set from the environment. */
 	upstream?: { anthropicBaseUrl?: string; tavilyBaseUrl?: string };
+	/** Tests only: the email sender and student directory for the reports (W2-10). */
+	email?: Pick<EmailReportsOptions, "sender" | "students">;
 	/** Operational lines. Never given session text or email addresses. */
 	log?: (line: string) => void;
 }
@@ -72,6 +79,8 @@ export interface FrontDoor {
 	url: string;
 	/** Where tenant servers reach the meter. */
 	meterUrl: string;
+	/** Email reports (W2-10). `email.sendOwnerAlert` is for w2-pause's alerts. */
+	email: Pick<EmailReports, "mode" | "sender" | "runner" | "sendOwnerAlert">;
 	/** Stops tenant servers, writes every usage row it still holds, and closes. */
 	close(): Promise<void>;
 }
@@ -142,9 +151,25 @@ export async function startFrontDoor(options: FrontDoorOptions): Promise<FrontDo
 		onExit: (tenantId, code, signal) => log(`tenant ${tenantId} server stopped (code ${code}, signal ${signal})`),
 	});
 
+	const clerk = options.clerk ?? createClerkGateway(config.clerk);
+	// Email reports (W2-10): the report loop, the report pages, the Owner alert email.
+	const email = startEmailReports({
+		env: options.env,
+		db: db ?? null,
+		accounts,
+		clerk,
+		clerkSettings: config.clerk,
+		sessionSecret: config.sessionSecret,
+		secureCookies: config.secureCookies,
+		trustForwardedHeaders: config.trustForwardedHeaders,
+		ensureRunning: (tenantId) => supervisor.ensureRunning(tenantId),
+		...options.email,
+		log,
+	});
+
 	const gateway = createGateway({
 		accounts,
-		clerk: options.clerk ?? createClerkGateway(config.clerk),
+		clerk,
 		supervisor,
 		provision: async (tenantId) => {
 			provisionTenant({ volumeDir: config.volumeDir, tenantId, fileAccess: libraryOnly });
@@ -155,6 +180,7 @@ export async function startFrontDoor(options: FrontDoorOptions): Promise<FrontDo
 		secureCookies: config.secureCookies,
 		trustForwardedHeaders: config.trustForwardedHeaders,
 		frontDoorApp: options.frontDoorApp,
+		reportPages: email.reportPages,
 		log,
 	});
 
@@ -167,9 +193,11 @@ export async function startFrontDoor(options: FrontDoorOptions): Promise<FrontDo
 	return {
 		url,
 		meterUrl,
+		email: { mode: email.mode, sender: email.sender, runner: email.runner, sendOwnerAlert: email.sendOwnerAlert },
 		close() {
 			closing ??= (async () => {
 				const stopped = closeServer(server);
+				await email.close();
 				await supervisor.stopAll();
 				await stopped;
 				// Every usage write already started, then every row still waiting.
