@@ -41,13 +41,13 @@ describe("what counts as a page load", () => {
 
 describe("the access reader", () => {
 	function fakeDb(rows: () => Array<Record<string, unknown>>): Db & { calls: number } {
-		const db = {
+		const db: Db & { calls: number } = {
 			calls: 0,
 			async query() {
 				db.calls += 1;
 				return rows() as never;
 			},
-			async transaction<T>(fn: (tx: Db) => Promise<T>) {
+			async transaction<T>(fn: (tx: Db) => Promise<T>): Promise<T> {
 				return fn(db);
 			},
 		};

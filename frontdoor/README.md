@@ -21,6 +21,7 @@ Decision and spike: `docs/decisions/2026-11-08-x5-front-door-spike.md`.
 | `db/`, `supabase/` | The database module and its migrations. See `db/README.md`. |
 | `production-safety/`, `log-hygiene/`, `settings-template/`, `source-link/` | Lockdown pieces. |
 | `records/` | The printed study record. |
+| `pause/`, `retention/`, `backups/` | W2-7: alert and autopause, the pause and plan-ended screens, unpause, the export zip, the day-91 delete, nightly tenant copies and restore. See `pause/README.md`. |
 | `app/account/` | The front door's Next.js pages. Clerk is set up in `app/account/layout.tsx` only. |
 | `app/(public)/`, `marketing/` | The public pages: landing, How it works, Help, legal placeholders (W2-11). Text in `marketing/copy.ts`. |
 | `plans/` | Prices and trial terms, the one place they live. |
@@ -98,6 +99,8 @@ It sets `NODE_ENV=production` and runs `server.ts` with `tsx`.
 | `<volume>/auth/<tenant id>.json` | Each tenant server's key file (`LH_AUTH_FILE`). It holds no key: the meter has the keys. |
 | `<volume>/library/` | The shared source library (`LH_LIBRARY_DIR`), the only folder the tutors' file tools may read. Made at start if missing. |
 | `<volume>/metering/` | `pending-usage.jsonl` and `rejected-usage.jsonl`, only after a database outage. |
+| `<volume>/backups/nightly/<date>/` | Nightly copy of each tenant folder, with a manifest, newest 7 nights (W2-7). Restore: `docs/decisions/2026-11-08-backups.md`. |
+| `<volume>/restore-kept/` | A folder a live restore replaced, kept until a person removes it. |
 
 **Variables:**
 

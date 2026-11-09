@@ -117,7 +117,7 @@ describe("retention and the day-91 delete (C1 req 6, D25)", () => {
 		assert.equal((await readTenantAccess(t.db, s.tenant.id, clock)).state, "retention", "before the job runs it reads as an expired retention");
 		const result = await retention.runDay91();
 		assert.deepEqual(result, { due: 1, deleted: 1, failed: 0, deletedIds: [s.tenant.id] });
-		assert.deepEqual(stopped, [s.tenant.id], "its server is stopped first");
+		assert.deepEqual(stopped, [s.tenant.id, s.tenant.id], "its server is stopped first, and again after the rows are gone");
 		assert.equal(fs.existsSync(s.dir), false, "tenant folder deleted");
 		assert.equal(fs.existsSync(tenantAuthFile(volume, s.tenant.id)), false, "key file deleted");
 		assert.equal(fs.existsSync(path.join(s.night, s.tenant.id)), false, "nightly copy deleted");

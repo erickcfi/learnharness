@@ -22,8 +22,8 @@
  *     email address);
  *  4. delete its account row, which removes every tenant row through the
  *     foreign keys;
- *  5. delete the folder again, in case a request started its server
- *     between steps 2 and 4.
+ *  5. stop its server and delete the folder again, in case a request
+ *     started the server between steps 2 and 4.
  * What is left: trial_claims (a keyed hash of the email and Stripe's card
  * fingerprint, written when the trial started, with no tenant link) and
  * stripe_events (Stripe event ids only). Stripe keeps its own records.
@@ -115,6 +115,8 @@ export function createRetention(options: RetentionOptions): Retention {
 		const login = await one(db, "select a.clerk_user_id from accounts a join tenants t on t.account_id = a.id where t.id = $1", [tenant.id]);
 		if (options.deleteLogin && login?.clerk_user_id) await options.deleteLogin(String(login.clerk_user_id));
 		await deleteTenantAndAccount(db, tenant.id);
+		// A request may have started its server again before the rows went: stop it, and remove what it wrote.
+		await options.stopTenant?.(tenant.id);
 		removeTenantFiles(volumeDir, tenant.id);
 		log(
 			`day-91: deleted tenant ${tenant.id} (folder ${files.folder ? "yes" : "already gone"}, key file ${files.keyFile ? "yes" : "already gone"}, ${files.nightlyCopies} nightly copies, login ${options.deleteLogin ? "deleted" : "kept"}, database rows)`,
