@@ -5,7 +5,10 @@ import { NextRequest } from "next/server";
 // Installed Next 16.3.2 retains the old test-helper export despite proxy.md's new name.
 import { unstable_doesMiddlewareMatch as unstable_doesProxyMatch } from "next/experimental/testing/server";
 import { desktopAPIAuthorized } from "../src/server/desktop-access.ts";
-import { proxy, config } from "../proxy.ts";
+import { proxy } from "../proxy.ts";
+// North Aero fork (W2-6): proxy.ts exports no matcher now, so Proxy runs on
+// every path; outside hosted mode the function still checks /api only.
+const config = {};
 import { browserServiceSpawnEnv } from "../src/agent/subagents/headless.ts";
 const require = createRequire(import.meta.url);
 const { desktopAPIHeaders, HEADER } = require("../electron/desktop-api.cjs");
@@ -53,12 +56,14 @@ test("all methods fail closed for desktop missing/wrong secret; API-only matcher
 	}
 	assert(desktopAPIAuthorized(new Headers({ [HEADER]: secret }), { LH_DESKTOP_SERVER: "1", LH_DESKTOP_API_SECRET: secret }));
 	for (const pathname of ["/api/events", "/api/chat", "/api/settings/models", "/api/chats/scratch/markdown"]) assert(unstable_doesProxyMatch({ config, nextConfig: {}, url: origin + pathname }));
-	assert(!unstable_doesProxyMatch({ config, nextConfig: {}, url: origin + "/chat/new" }));
+	// Fork (W2-6): Proxy now also runs for pages; outside hosted mode the
+	// function lets a page through without the secret, as upstream did.
 	const originalMarker = process.env.LH_DESKTOP_SERVER;
 	const originalSecret = process.env.LH_DESKTOP_API_SECRET;
 	try {
 		process.env.LH_DESKTOP_SERVER = "1";
 		process.env.LH_DESKTOP_API_SECRET = secret;
+		assert.equal(proxy(new NextRequest(origin + "/chat/new")).headers.get("x-middleware-next"), "1");
 		for (const method of ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]) {
 			assert.equal(proxy(new NextRequest(origin + "/api/settings", { method })).status, 403);
 			assert.equal(proxy(new NextRequest(origin + "/api/settings", { method, headers: { [HEADER]: secret } })).headers.get("x-middleware-next"), "1");

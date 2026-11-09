@@ -239,7 +239,8 @@ describe("tenant servers", () => {
 describe("tenant server environment", () => {
 	it("is built from a short allowlist, never the whole front door environment", () => {
 		const env = tenantServerEnv({ serverScript, volumeDir: volume, baseEnv: FRONT_DOOR_ENV }, "33333333-3333-4333-8333-333333333333", 41234);
-		assert.deepEqual(Object.keys(env).sort(), ["HOME", "HOSTNAME", "LANG", "LH_AUTH_FILE", "LH_DATA_DIR", "NEXT_TELEMETRY_DISABLED", "NODE_ENV", "PATH", "PORT"]);
+		// LH_HOSTED and TMPDIR: W2-6 (hosted mode, each tenant's own temp folder).
+		assert.deepEqual(Object.keys(env).sort(), ["HOME", "HOSTNAME", "LANG", "LH_AUTH_FILE", "LH_DATA_DIR", "LH_HOSTED", "NEXT_TELEMETRY_DISABLED", "NODE_ENV", "PATH", "PORT", "TMPDIR"]);
 		assert.equal(env.PORT, "41234");
 	});
 

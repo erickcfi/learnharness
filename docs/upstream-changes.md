@@ -18,3 +18,14 @@ Every upstream file that the fork changes gets one row here. Merges from upstrea
 | `tests/notes-import-route.test.ts` | P1-06 | PD3: the "exactly 25 MiB" upload test now sends two 12.5 MiB files, because one 25 MiB file is over the 20 MB per-file limit. The test still checks the 26 MiB body headroom. |
 | `tests/render-update-settings.test.tsx` | P1-10 | AGPL source link: the build-metadata test also expects the public `LH_SOURCE_COMMIT`. |
 | `package-lock.json` | W1-6 | `tsx` is now a front door dependency, because it runs `frontdoor/server.ts` in production (master decision, 2026-11-08). Its lock entries, and esbuild's, lose the dev-only mark. |
+| `proxy.ts` | P1-05 (W2-6) | Tenant wall A (master decision, 2026-11-08). The `matcher` is removed, so Proxy runs on every path. With `LH_HOSTED=1` (set by the front door), the desktop secret is checked on every path, pages and `/_next` files included, and a missing or short secret refuses everything. Unset, only `/api` is checked, as upstream does. |
+| `tests/desktop-api.test.ts` | P1-05 (W2-6) | Follows the `proxy.ts` change: Proxy has no matcher now, so the test no longer asserts that `/chat/new` is outside it. It asserts instead that, outside hosted mode, a page passes without the secret. Marked as a fork change. |
+| `src/agent/tools/web.ts` | P1-05 (W2-6) | Tenant wall B: `web_fetch` uses `safeFetch` (`frontdoor/isolation/safe-fetch.ts`). With `LH_HOSTED=1` it refuses loopback, private, link-local and metadata addresses, after the name lookup and on every redirect. Unset, plain `fetch()`. One import and one call changed. |
+| `src/agent/tools/pdf-read.ts` | P1-05 (W2-6) | Tenant wall B for `web_fetch_pdf`, the same way as `web_fetch`. One import and one call changed. |
+| `app/layout.tsx` | P2-04 | Hosted mode: wraps the app in `HostedProvider` (`frontdoor/isolation/hosted.tsx`), with `LH_HOSTED === "1"` read on the server at each request. |
+| `components/model-picker.tsx` | P2-04 | Hosted mode hides the model and thinking pickers and turns off their shortcuts (⌘K model menu, Shift+Tab thinking level). The model still reaches the stats bar. |
+| `components/settings/settings-dialog.tsx` | P2-04 | Hosted mode drops the Providers and General sections and opens on Agent. |
+| `components/settings/agent-section.tsx` | P2-04 | Hosted mode hides Models, File access, Search engine and System prompts, and skips their reads of `/api/keys` and `/api/settings/prompts`. |
+| `components/settings/subscription-client.ts` | P2-04 | Hosted mode gives no subscription bridge, so no status calls to `/api/subscriptions` (which the front door blocks). |
+| `components/dictation.tsx` | P2-04 | Hosted mode (N13): no mic button, no dictation shortcut, no token pre-fetch from `/api/stt/token`. |
+| `components/settings/keyboard-section.tsx` | P2-04 | Hosted mode lists no shortcut for the hidden controls (dictation, model menu, thinking cycle). |

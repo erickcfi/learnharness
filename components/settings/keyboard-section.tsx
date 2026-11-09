@@ -27,6 +27,9 @@ import {
 	type KeyScope,
 } from "@/src/core";
 import { SettingsRow } from "./controls.tsx";
+// North Aero fork (W2-6): hosted mode lists no shortcut for a hidden control.
+import { useHosted } from "@/frontdoor/isolation/hosted";
+const HOSTED_HIDDEN_ACTIONS: readonly KeyAction[] = ["toggle-dictation", "open-model-picker", "cycle-thinking"];
 
 const SCOPES: { scope: KeyScope; label: string }[] = [
 	{ scope: "global", label: "Global" },
@@ -51,6 +54,7 @@ export function KeyboardSection() {
 	const [overrides, setOverrides] = useState<Partial<Record<KeyAction, string>>>({});
 	const [rebinding, setRebinding] = useState<KeyAction | null>(null);
 	const [nonce, setNonce] = useState(0);
+	const hosted = useHosted();
 
 	// localStorage is read post-mount (SSR-safe); `nonce` re-reads after writes.
 	useEffect(() => {
@@ -97,7 +101,7 @@ export function KeyboardSection() {
 	return (
 		<>
 			{SCOPES.map(({ scope, label }) => {
-				const actions = KEYBOARD_ACTIONS.filter((a) => a.scope === scope);
+				const actions = KEYBOARD_ACTIONS.filter((a) => a.scope === scope && !(hosted && HOSTED_HIDDEN_ACTIONS.includes(a.id)));
 				if (!actions.length) return null;
 				return (
 					<div key={scope} data-testid={`kbd-scope-${scope}`}>

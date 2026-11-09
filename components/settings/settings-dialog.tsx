@@ -52,6 +52,9 @@ import { AppearanceSection, GraphSection } from "./appearance-section.tsx";
 import { KeyboardSection } from "./keyboard-section.tsx";
 import { ChatGPTUIProvider } from "./chatgpt-connection.tsx";
 import { NativeSubscriptionUIProvider } from "./subscription-connections.tsx";
+// North Aero fork (W2-6): hosted mode drops Providers and the desktop-only General.
+import { useHosted } from "@/frontdoor/isolation/hosted";
+const HOSTED_HIDDEN_SECTIONS: readonly string[] = ["keys", "general"];
 
 /** Owner (2026-09-20): hints earn their place — mechanics-explaining
  *  prose is out; only the keyboard note stays (storage location is a
@@ -180,15 +183,18 @@ export function SettingsDialogBody({
 			window.removeEventListener(MENU_CLOSE_EVENT, onClose);
 		};
 	}, []);
-	const [active, setActive] = useState<SectionId>(initialSection);
+	const hosted = useHosted();
+	const sections = hosted ? SECTIONS.filter((s) => !HOSTED_HIDDEN_SECTIONS.includes(s.id)) : SECTIONS;
+	const landing: SectionId = hosted && HOSTED_HIDDEN_SECTIONS.includes(initialSection) ? "agent" : initialSection;
+	const [active, setActive] = useState<SectionId>(landing);
 	// A deep-link fired while the dialog is ALREADY open (first exercised by
 	// the wave-6 embedding picker's "Add a provider key first…" link — the
 	// picker itself died with wave 7, the mechanism is general) changes
 	// initialSection under our feet — follow it, or the link silently does
 	// nothing.
 	useEffect(() => {
-		setActive(initialSection);
-	}, [initialSection]);
+		setActive(landing);
+	}, [landing]);
 
 	// Fetch once per dialog mount. 200 {settings: null} is FIRST BOOT
 	// (no record = factory everything), not a failure — the error state is
@@ -309,7 +315,7 @@ export function SettingsDialogBody({
 					data-testid="settings-nav"
 					className="flex w-44 shrink-0 flex-col gap-1 border-r border-border p-2"
 				>
-					{SECTIONS.map((s) => (
+					{sections.map((s) => (
 						<button
 							key={s.id}
 							type="button"
@@ -357,7 +363,7 @@ export function SettingsDialogBody({
 						</p>
 					) : (
 						<div>
-							{active === "general" && (
+							{active === "general" && !hosted && (
 								<SettingsSection
 									title="General"
 									testid="section-general"
@@ -370,7 +376,7 @@ export function SettingsDialogBody({
 									/>
 								</SettingsSection>
 							)}
-							{active === "keys" && (
+							{active === "keys" && !hosted && (
 								<SettingsSection title="Providers" testid="section-keys">
 									<KeysSection initialRow={initialRow ?? undefined} />
 								</SettingsSection>

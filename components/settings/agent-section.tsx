@@ -80,6 +80,9 @@ import { SettingsGroup, SettingsRow, SettingsMenuTrigger, Toggle, CommitInput } 
 import { ModelMenuList, ThinkingMenuList } from "./model-menu";
 import { ChatGPTBackgroundAccess } from "./chatgpt-connection";
 import { NativeSubscriptionBackgroundAccess } from "./subscription-connections";
+// North Aero fork (W2-6): hosted mode hides Models, File access, Search
+// engine and System prompts, and skips the key and prompt reads they need.
+import { useHosted } from "@/frontdoor/isolation/hosted";
 
 /** One slot's display identity — the tier's roster as the row hint rides
  *  with the resolved default (owner: the hint ALWAYS names the default). */
@@ -355,6 +358,7 @@ export function AgentSection({
 	const [openMenu, setOpenMenu] = useState<{ target: ModelSlotName | "search"; kind: "model" | "thinking" | "engine" | "cache" } | null>(null);
 	const [advancedModels, setAdvancedModels] = useState(false);
 	const menuAnchorRef = useRef<HTMLSpanElement>(null);
+	const hosted = useHosted();
 
 	const refreshSearch = () =>
 		fetch("/api/search")
@@ -370,11 +374,12 @@ export function AgentSection({
 	 *  a remount. Keeps the last-good view on a failed re-read (the
 	 *  initial mount fetch below owns the loading/null state). */
 	const readPrompts = useCallback(() => {
+		if (hosted) return;
 		fetch("/api/settings/prompts")
 			.then((r) => r.json())
 			.then((body: PromptView) => setPrompts(body))
 			.catch(() => {});
-	}, []);
+	}, [hosted]);
 
 	// The shared catalog seeds the first frame and refreshes per mount and
 	// keys/models signal. Settings props still own saved selections/levels.
@@ -387,6 +392,7 @@ export function AgentSection({
 	});
 
 	useEffect(() => {
+		if (hosted) return;
 		fetch("/api/settings/prompts")
 			.then((r) => r.json())
 			.then((body: PromptView) => setPrompts(body))
@@ -401,7 +407,7 @@ export function AgentSection({
 				setEngineKeys(present);
 			})
 			.catch(() => {});
-	}, []);
+	}, [hosted]);
 
 	// The reason line re-reads /api/search AFTER an engine write lands —
 	// the write updates the `agent` prop (the dialog's record mirror), so
@@ -626,6 +632,7 @@ export function AgentSection({
 
 	return (
 		<>
+			{!hosted && (
 			<SettingsGroup label="Models" testid="group-models">
 				<button
 					type="button"
@@ -768,6 +775,7 @@ export function AgentSection({
 					);
 				})}
 			</SettingsGroup>
+			)}
 
 			<SettingsGroup label="Tools" testid="group-tools">
 				{/* The prober's graph tools (wave 7, owner ruling 2026-09-23):
@@ -848,7 +856,7 @@ export function AgentSection({
 						/>
 					</SettingsRow>
 				))}
-				{(() => {
+				{!hosted && (() => {
 					const folders = agent?.fileAccess?.folders ?? [];
 					const restricted = Boolean(fileAccessError) || agent?.fileAccess?.restricted === true;
 					const effectiveAgent = fileAccessError ? { ...agent, fileAccess: { restricted: true, folders } } : agent;
@@ -890,7 +898,7 @@ export function AgentSection({
 						</div>
 					);
 				})()}
-				{(() => {
+				{!hosted && (() => {
 					const engine = agent?.search?.engine ?? null;
 					const anyKey = SEARCH_ENGINES.some(({ id }) => engineKeys[id] === true);
 					const open = openMenu?.target === "search";
@@ -970,6 +978,7 @@ export function AgentSection({
 				</SettingsRow>
 			</SettingsGroup>
 
+			{!hosted && (
 			<SettingsGroup label="System prompts" testid="group-prompts">
 				{prompts === null ? (
 					<p className="text-xs text-muted-foreground/70">Loading prompt segments…</p>
@@ -990,6 +999,7 @@ export function AgentSection({
 					</div>
 				)}
 			</SettingsGroup>
+			)}
 		</>
 	);
 }

@@ -15,7 +15,9 @@
  *                         door's app. With a login: the tutor, as below.
  *   everything else       needs the login cookie. Without it, /api gets 401
  *                         and a page redirects to sign-in. With it, the
- *                         request passes through to the tenant's server.
+ *                         route table decides (W2-6, route-guard.ts), and
+ *                         the request passes through to the tenant's server
+ *                         with that server's own secret header.
  *
  * Routing uses the normalized path ("..", "%2e%2e" resolved), and that same
  * path is what Next.js or the tenant receives.
@@ -27,6 +29,7 @@ import type { ClerkGateway } from "./auth.ts";
 import { clearCookie, parseCookies, serializeCookie } from "./cookies.ts";
 import { passThrough } from "./passthrough.ts";
 import { FRONT_DOOR_PREFIX, safeReturnPath } from "./return-path.ts";
+import { guardRoute, studentRoutePolicy, type RoutePolicy } from "./route-guard.ts";
 import {
 	AGE_COOKIE,
 	AGE_MAX_AGE_SECONDS,
@@ -44,7 +47,12 @@ export interface GatewayDeps {
 	/** Read on every request, so the store can be swapped (tests). */
 	accounts: AccountStore;
 	clerk: ClerkGateway;
-	supervisor: { ensureRunning(tenantId: string): Promise<number> };
+	/** endpoint() (W2-6) also gives the tenant's secret header. Without it the
+	 *  request goes without the secret, and a hosted tenant refuses it. */
+	supervisor: { ensureRunning(tenantId: string): Promise<number>; endpoint?(tenantId: string): Promise<{ port: number; headers: Record<string, string> }> };
+	/** What a student may reach (W2-6, gateway/route-guard.ts). Default: the
+	 *  production table with no File access template. */
+	routePolicy?: RoutePolicy;
 	/** Creates the tenant folder and writes the settings template (provisioning.ts). */
 	provision(tenantId: string): void | Promise<void>;
 	sessionSecret: Uint8Array;
@@ -63,6 +71,7 @@ const firstValue = (value: string | string[] | undefined) => (Array.isArray(valu
 
 export function createGateway(deps: GatewayDeps): (req: IncomingMessage, res: ServerResponse) => void {
 	const now = () => (deps.now ? deps.now() : Date.now());
+	const defaultPolicy = studentRoutePolicy();
 	const cookie = (name: string, value: string, maxAgeSeconds: number) => serializeCookie(name, value, { maxAgeSeconds, secure: deps.secureCookies });
 	const clear = (name: string) => clearCookie(name, deps.secureCookies);
 
@@ -222,9 +231,16 @@ export function createGateway(deps: GatewayDeps): (req: IncomingMessage, res: Se
 			setCookie.push(cookie(SESSION_COOKIE, await signSession(current, deps.sessionSecret, now()), SESSION_MAX_AGE_SECONDS));
 		}
 
+		// W2-6: route blocks and the model lock (gateway/route-guard.ts).
+		const verdict = await guardRoute(req, pathname, deps.routePolicy ?? defaultPolicy);
+		if (verdict.kind === "refuse") return sendJson(res, verdict.status, { error: verdict.message }, setCookie);
+		if (verdict.kind === "redirect-home") return redirect(res, 302, "/", setCookie);
+
 		let port: number;
+		let tenantHeaders: Record<string, string> = {};
 		try {
-			port = await deps.supervisor.ensureRunning(current.tenantId);
+			if (deps.supervisor.endpoint) ({ port, headers: tenantHeaders } = await deps.supervisor.endpoint(current.tenantId));
+			else port = await deps.supervisor.ensureRunning(current.tenantId);
 		} catch (error) {
 			deps.log?.(`tenant ${current.tenantId} could not start: ${(error as Error).message}`);
 			return tutorUnavailable(res, isApi(pathname));
@@ -233,7 +249,7 @@ export function createGateway(deps: GatewayDeps): (req: IncomingMessage, res: Se
 		// request and stream passes this point. Write the upstream chat id
 		// (from /api/chats/<id>/...) into study_time.chat_id (master decision,
 		// 2026-11-08). Outside this package (w1-front-door).
-		passThrough(req, res, { port, path: target, proto: proto(req), setCookie });
+		passThrough(req, res, { port, path: target, proto: proto(req), setCookie, tenantHeaders, body: verdict.body });
 	}
 
 	async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
