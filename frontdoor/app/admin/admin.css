@@ -80,6 +80,7 @@
 }
 .ad button.primary { background: var(--ad-ink); color: #fff; }
 .ad button.danger { background: var(--ad-red); border-color: var(--ad-red); color: #fff; }
+.ad button.danger-outline { border-color: var(--ad-red); color: var(--ad-red); }
 .ad label { display: block; font-size: 14px; color: var(--ad-gray); margin: 10px 0 4px; }
 .ad input[type="text"], .ad input[type="file"], .ad select {
 	font: inherit;

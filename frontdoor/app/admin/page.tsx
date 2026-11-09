@@ -46,7 +46,7 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
 									{usd(a.windowCostUsd)} of model cost in 30 days passed the {usd(a.thresholdUsd)} line.
 								</p>
 								<div className="ad-actions">
-									{row && <PauseButton tenantId={a.tenantId} paused={row.paused} back={back} />}
+									{row && <PauseButton tenantId={a.tenantId} paused={row.paused} back={back} name={displayName(row)} />}
 									<form method="post" action={`/admin/api/alerts/${a.id}/clear`}>
 										<input type="hidden" name="back" value={back} />
 										<button type="submit">Clear alert</button>
@@ -181,7 +181,7 @@ function StudentCard({ r, billing, back }: { r: TenantRow; billing: boolean; bac
 			</dl>
 			{r.recentTopics.length > 0 && <p className="ad-note">Topics: {r.recentTopics.join(" · ")}</p>}
 			<div className="ad-actions">
-				<PauseButton tenantId={r.tenantId} paused={r.paused} back={back} />
+				<PauseButton tenantId={r.tenantId} paused={r.paused} back={back} name={displayName(r)} />
 				<Link className="ad-btn" href={`/admin/students/${r.tenantId}`}>
 					Details
 				</Link>

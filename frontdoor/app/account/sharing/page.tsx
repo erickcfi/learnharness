@@ -33,6 +33,8 @@ export default async function SharingPage({ searchParams }: { searchParams: Prom
 				</button>
 			</form>
 			<p style={{ marginTop: 24 }}>
+				{/* A full page load on purpose: for a signed-in student "/" is the tutor, which Next.js does not serve. */}
+				{/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
 				<a href="/">{C.back}</a>
 			</p>
 		</main>

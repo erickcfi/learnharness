@@ -48,7 +48,7 @@ export default async function StudentPage({
 				{r.name && r.email && <span className="ad-muted">{r.email}</span>}
 			</div>
 			<div className="ad-actions">
-				<PauseButton tenantId={tenantId} paused={r.paused} back={back} />
+				<PauseButton tenantId={tenantId} paused={r.paused} back={back} name={r.name ?? r.email ?? `Student ${r.shortId}`} />
 			</div>
 
 			<nav className="ad-tabs" aria-label="Period" style={{ marginTop: 16 }}>

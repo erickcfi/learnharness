@@ -45,7 +45,7 @@ export const STATUS_LABELS: Record<DashboardStatus, string> = {
 export const PLAN_LABELS: Record<Plan, string> = { monthly: "Monthly", three_month: "3-month", annual: "Annual" };
 
 export const CONVERSION_LABELS: Record<Conversion, string> = {
-	converted: "Paid after trial",
+	converted: "Paid",
 	"in-trial": "In trial",
 	"not-converted": "Did not pay",
 	"no-trial": "–",
