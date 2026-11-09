@@ -12,6 +12,9 @@
 	"type": "module",
 	"private": true,
 	"main": "electron/main.cjs",
+	"workspaces": [
+		"frontdoor"
+	],
 	"scripts": {
 		"dev": "next dev",
 		"build": "next build",
