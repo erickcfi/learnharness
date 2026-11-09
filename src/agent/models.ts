@@ -7,6 +7,7 @@ import {
 	type Model,
 	type Models,
 	type MutableModels,
+	type Provider,
 	type StreamFunction,
 } from "@earendil-works/pi-ai";
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
@@ -72,6 +73,23 @@ export function configureProviderSource(source: ProviderSource): void {
 	providerSource = source;
 }
 
+/** North Aero fork (X2, docs/upstream-changes.md): with LH_ANTHROPIC_BASE_URL
+ *  set, every Anthropic request goes to that address, the metering proxy,
+ *  whichever caller makes it. Read per request. Unset leaves the request
+ *  untouched, as upstream. Other providers pass through unchanged. */
+function viaMeteringProxy(provider: Provider): Provider {
+	if (provider.id !== "anthropic") return provider;
+	const route = (model: Model<Api>): Model<Api> => {
+		const baseUrl = process.env.LH_ANTHROPIC_BASE_URL;
+		return baseUrl ? { ...model, baseUrl } : model;
+	};
+	return {
+		...provider,
+		stream: (model, context, options) => provider.stream(route(model), context, options),
+		streamSimple: (model, context, options) => provider.streamSimple(route(model), context, options),
+	};
+}
+
 /** The process-wide pi-ai Models collection — EVERY builtin provider's
  *  catalog (model slots wave, 2026-09-20): engines and the picker resolve
  *  against all of pi-ai's per-provider catalogs, so a settings slot can pin
@@ -89,7 +107,7 @@ export function piModels() {
 			// replace its lazy forwarding; preserve the native factory's auth/catalog.
 			collection.setProvider(provider.id === "amazon-bedrock"
 				? { ...provider, ...lazyApi(() => import("@earendil-works/pi-ai/api/bedrock-converse-stream")) }
-				: provider);
+				: viaMeteringProxy(provider));
 		}
 		collection.setProvider(createClaudeCodeProvider(streamClaudeCode));
 	}

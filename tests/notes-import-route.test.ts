@@ -190,11 +190,13 @@ for (const split of [false, true]) it(`server refuses actual file bytes over 25 
 
 it("server accepts exactly 25 MiB of files with multipart overhead below 26 MiB", async () => {
 	let received = 0;
-	extraction.importNotes = async ({ text }) => { received = text.length; return { nodes: 0, chains: 0 }; };
-	const response = await POST(upload([{ name: "boundary.txt", bytes: new Uint8Array(MAX_IMPORT_BYTES) }]));
+	extraction.importNotes = async ({ text }) => { received += text.length; return { nodes: 0, chains: 0 }; };
+	// North Aero fork (PD3, docs/upstream-changes.md): 20 MB per file, so the full 25 MiB arrives as two files.
+	const half = MAX_IMPORT_BYTES / 2;
+	const response = await POST(upload([{ name: "boundary-a.txt", bytes: new Uint8Array(half) }, { name: "boundary-b.txt", bytes: new Uint8Array(half) }]));
 	assert.equal(response.status, 200);
 	assert.equal(received, MAX_IMPORT_BYTES);
-	assert.equal((await response.json()).results[0].outcome, "completed");
+	assert.deepEqual((await response.json()).results.map((r: { outcome: string }) => r.outcome), ["completed", "completed"]);
 });
 
 for (const declared of [undefined, "1"]) it(`server bounds streamed body bytes with ${declared ? "a misleading" : "no"} Content-Length and cancels oversize streams`, async () => {

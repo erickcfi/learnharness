@@ -26,6 +26,14 @@ import { effectiveSettings } from "./stores.ts";
 /** The wire-callable shape the adapters close over (tests inject a stub). */
 type FetchLike = (input: string, init: RequestInit) => Promise<Response>;
 
+/** North Aero fork (X2, docs/upstream-changes.md): with LH_TAVILY_BASE_URL
+ *  set, Tavily searches go to that address, the metering proxy, which
+ *  counts them per tenant. Read per search. Unset keeps upstream's endpoint. */
+function tavilySearchUrl(): string {
+	const base = process.env.LH_TAVILY_BASE_URL?.replace(/\/+$/, "");
+	return base ? `${base}/search` : "https://api.tavily.com/search";
+}
+
 /** Tavily: POST https://api.tavily.com/search — Bearer auth in the
  *  Authorization header (the current documented scheme; the legacy
  *  api_key-in-body form is retired), query + max_results (0–20) in the
@@ -36,7 +44,7 @@ export function tavilyProvider(apiKey: string, fetchFn: FetchLike = fetch): Sear
 	return {
 		id: "tavily",
 		async search(query: string, count: number): Promise<SearchHit[]> {
-			const resp = await fetchFn("https://api.tavily.com/search", {
+			const resp = await fetchFn(tavilySearchUrl(), {
 				method: "POST",
 				headers: {
 					"content-type": "application/json",

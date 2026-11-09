@@ -49,6 +49,7 @@ interface ImportResult {
 }
 
 const MAX_PDF_PAGES = 1000;
+const MAX_IMPORT_FILE_BYTES = 20 * 1024 * 1024;
 const PDF_MAGIC = [0x25, 0x50, 0x44, 0x46, 0x2d]; // "%PDF-"
 
 type NotesFile = { kind: "notes"; text: string; notice?: string } | { kind: "refused"; error: string };
@@ -122,6 +123,10 @@ export async function POST(request: Request) {
 	const files = form.getAll("files").filter((f): f is File => f instanceof File);
 	if (files.reduce((total, file) => total + file.size, 0) > MAX_IMPORT_BYTES) {
 		return Response.json({ results: [] as ImportResult[], error: "Too big. Max 25 MB." }, { status: 413 });
+	}
+	// North Aero fork (PRD PD3, docs/upstream-changes.md): 20 MB per file.
+	if (files.some((file) => file.size > MAX_IMPORT_FILE_BYTES)) {
+		return Response.json({ results: [] as ImportResult[], error: "Too big. Max 20 MB per file." }, { status: 413 });
 	}
 	if (files.length === 0) {
 		return Response.json({ results: [] as ImportResult[], error: "no files" }, { status: 400 });
