@@ -7,7 +7,8 @@
  * student can't use: the model and thinking pickers and Shift+Tab, Providers
  * and keys, File access, System prompts, the desktop-only General section,
  * and the dictation mic. The front door's route table refuses those routes
- * anyway (gateway/route-policy.ts); hiding them means nothing errors.
+ * anyway (gateway/route-policy.ts); hiding them means nothing errors. Dollar
+ * costs are hidden too (HIDE_COSTS_WHEN_HOSTED below).
  *
  * With LH_HOSTED unset (upstream's desktop and dev runs), useHosted() is
  * false and every control shows as upstream builds it.
@@ -23,4 +24,18 @@ export function HostedProvider({ hosted, children }: { hosted: boolean; children
 /** True when this server runs for the North Aero front door (LH_HOSTED=1). */
 export function useHosted(): boolean {
 	return useContext(HostedContext);
+}
+
+/**
+ * Students pay a flat price, so in hosted mode they don't see what their
+ * model calls cost: the graph cost pill and the dollar figures in session
+ * stats are hidden (master decision, 2026-11-08, pending Erick's word).
+ * Set to false to show them again, as upstream does. The Owner still sees
+ * every cost on the dashboard.
+ */
+export const HIDE_COSTS_WHEN_HOSTED = true;
+
+/** True when dollar costs are hidden from the student. */
+export function useCostsHidden(): boolean {
+	return useContext(HostedContext) && HIDE_COSTS_WHEN_HOSTED;
 }

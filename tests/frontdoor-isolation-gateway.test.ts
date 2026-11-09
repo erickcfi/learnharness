@@ -162,6 +162,20 @@ describe("with a login", () => {
 		for (const hit of hits) assert.equal(hit.headers["x-learnharness-desktop"], TENANT_SECRET, hit.url);
 	});
 
+	it("the front door's own /account handlers come first: their POSTs are not page writes", async () => {
+		const age = await send("/account/age", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: "over18=yes&next=%2Faccount%2Fsign-up" });
+		assert.equal(age.status, 303, "the 18+ form still works with a login");
+		for (const method of ["POST", "PUT", "DELETE"]) {
+			const res = await send("/account/sign-in", { method, body: "x=1" });
+			assert.equal(res.status, 200, `${method} /account/sign-in reaches the front door's app`);
+			assert.equal(await res.text(), "front door page");
+		}
+		const page = await send("/chat/new", { method: "POST", body: "x=1" });
+		assert.equal(page.status, 403, "a write to a page the tenant would serve is refused");
+		await page.body?.cancel();
+		assert.equal(hits.length, 0);
+	});
+
 	it("pages reach the tenant on GET", async () => {
 		for (const p of ["/", "/chat/new", "/chat/abc", "/settings", "/_next/static/chunks/main.js"]) {
 			const res = await send(p);

@@ -7,6 +7,8 @@ import type { CallUsage, JobKind, JobRecord } from "@/src/core";
 import { isModelsRefusal, isProviderKeyRefusal, subscriptionLabel, subscriptionLabels } from "@/src/core";
 import { formatTokens, planCostLabel } from "@/components/usage-format";
 import { useServerEvent, useServerResync } from "@/components/server-events";
+// North Aero fork (W2-6): hosted mode hides background-job costs (flat price).
+import { useCostsHidden } from "@/frontdoor/isolation/hosted";
 
 /**
  * THE BACKGROUND-AGENTS SECTION (owner, sidebar round — the successor of
@@ -296,6 +298,7 @@ export function ActivitySection({ feed: feedProp }: { feed?: ActivityFeed }) {
 	const [openBlob, setOpenBlob] = useState<string | null>(null); // detail, inline-expanded
 	const [abortStates, setAbortStates] = useState<Record<string, AbortState>>({});
 	const now = useNow(blobs.length > 0);
+	const costsHidden = useCostsHidden();
 	// Refs for stable abort handlers (no re-created closures per tick).
 	const abortRef = useRef({ blobs, refresh, setAbortStates });
 	abortRef.current = { blobs, refresh, setAbortStates };
@@ -348,7 +351,7 @@ export function ActivitySection({ feed: feedProp }: { feed?: ActivityFeed }) {
 			<div className="mb-1 flex items-center gap-1.5 text-xs uppercase tracking-widest text-muted-foreground/70">
 				<ActivityIcon className="size-3" />
 				Background agents
-				{blobs.length > 0 && (
+				{blobs.length > 0 && !costsHidden && (
 					<span className="ml-auto tabular-nums" data-testid="activity-total-cost" title="Total running cost (inferred)">
 						{planCostLabel(totalCost, subscriptionLabels(blobs.map((blob) => blob.model)))}
 				</span>
@@ -389,6 +392,7 @@ function ActivityBlobRow({
 	abortState: AbortState | undefined;
 	onAbort: () => void;
 }) {
+	const costsHidden = useCostsHidden();
 	const Icon = blob.process === "extraction" ? WaypointsIcon : (blob.jobKind && KIND_ICON[blob.jobKind]) || BotIcon;
 	const label =
 		blob.process === "extraction"
@@ -425,7 +429,7 @@ function ActivityBlobRow({
 					)}
 				</span>
 				<span className="flex shrink-0 items-center gap-2 tabular-nums text-muted-foreground">
-					<span data-testid="activity-blob-cost">{planCostLabel(blob.cost, subscriptionLabel(blob.model))}</span>
+					{!costsHidden && <span data-testid="activity-blob-cost">{planCostLabel(blob.cost, subscriptionLabel(blob.model))}</span>}
 					<span data-testid="activity-blob-elapsed">{formatElapsed(now - blob.startedAt)}</span>
 				</span>
 			</button>
@@ -461,12 +465,14 @@ function ActivityBlobRow({
 							{blob.title}
 						</div>
 						{blob.activity && <div className="break-words">{blob.activity}</div>}
+						{!costsHidden && (
 						<div className="flex justify-between gap-2">
 							<span>Cost</span>
 							<span className="tabular-nums text-card-foreground">
 								{planCostLabel(blob.cost, subscriptionLabel(blob.model))}
 							</span>
 						</div>
+						)}
 						<div className="flex justify-between gap-2">
 							<span>Context</span>
 							<span className="tabular-nums text-card-foreground" data-testid="activity-blob-context">

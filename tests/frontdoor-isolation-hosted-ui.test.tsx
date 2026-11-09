@@ -15,7 +15,13 @@ import { SettingsDialogBody } from "../components/settings/settings-dialog.tsx";
 import { ModelControl } from "../components/model-picker.tsx";
 import { DictationBar, type Dictation } from "../components/dictation.tsx";
 import { KeyboardSection } from "../components/settings/keyboard-section.tsx";
-import { HostedProvider } from "../frontdoor/isolation/hosted.tsx";
+import { HIDE_COSTS_WHEN_HOSTED, HostedProvider } from "../frontdoor/isolation/hosted.tsx";
+import { StatsBar } from "../components/stats-bar.tsx";
+import { GraphCostControl } from "../components/graph-view.tsx";
+import { ActivitySection } from "../components/activity-dock.tsx";
+import { graphCostSummary } from "../src/core/cost-summary.ts";
+import { callCost } from "../src/server/pricing.ts";
+import type { TurnUsage } from "../src/core/index.ts";
 
 const render = (hosted: boolean, node: React.ReactNode) => renderToStaticMarkup(<HostedProvider hosted={hosted}>{node}</HostedProvider>);
 
@@ -78,6 +84,41 @@ describe("Settings → Keyboard", () => {
 		assert.ok(html.includes('data-testid="kbd-scope-global"'));
 		const plain = render(false, <KeyboardSection />);
 		for (const label of ["Toggle dictation", "Model selector", "Cycle thinking level"]) assert.ok(plain.includes(label), label);
+	});
+});
+
+describe("dollar costs (master decision 2026-11-08: hidden from students, HIDE_COSTS_WHEN_HOSTED)", () => {
+	const step = { inputTokens: 1000, outputTokens: 100, cacheReadTokens: 0, cacheWriteTokens: 0, cacheWrite1hTokens: 0, reasoningTokens: 0 };
+	const turn: TurnUsage = { id: "t1", messageId: "m1", at: "2026-11-08T00:00:00Z", model: "anthropic:claude-opus-5-5", steps: [step] };
+	const pricing = { cost: 0.12, unpriced: 0, turnCosts: { t1: 0.12 } };
+	const graphCosts = graphCostSummary({ chats: [{ title: "fixture", extractions: [{ startedAt: 1, at: "fixture", durationMs: 1, stages: { extractor: { model: "anthropic:claude-sonnet-5-5", steps: [step] }, auditor: { model: "anthropic:claude-sonnet-5-5", steps: [step] } } }] }], sources: [] }, callCost);
+	const feed = { jobs: [], extractions: [{ id: "cx", chatId: "cx", title: "Old lesson", phase: "merging", startedAt: Date.now() - 60_000 }] };
+
+	it("the switch is on", () => {
+		assert.equal(HIDE_COSTS_WHEN_HOSTED, true);
+	});
+
+	it("hosted: session stats show context but no dollars", () => {
+		const html = render(true, <StatsBar chatId="c1" turns={[turn]} pricing={pricing} contextTokens={12000} />);
+		assert.ok(html.includes('data-testid="stats-context"'));
+		assert.ok(!html.includes('data-testid="stats-cost"'));
+		assert.ok(!html.includes("$"));
+		const plain = render(false, <StatsBar chatId="c1" turns={[turn]} pricing={pricing} contextTokens={12000} />);
+		assert.ok(plain.includes('data-testid="stats-cost"') && plain.includes("$"));
+	});
+
+	it("hosted: no graph cost pill", () => {
+		assert.equal(render(true, <GraphCostControl costs={graphCosts} />), "");
+		const plain = render(false, <GraphCostControl costs={graphCosts} />);
+		assert.ok(plain.includes("<button") && plain.includes("$"), plain.slice(0, 200));
+	});
+
+	it("hosted: background agents show no cost", () => {
+		const html = render(true, <ActivitySection feed={feed} />);
+		assert.ok(html.includes('data-testid="activity-blob-extraction"'));
+		assert.ok(!html.includes("activity-total-cost") && !html.includes("activity-blob-cost"));
+		const plain = render(false, <ActivitySection feed={feed} />);
+		assert.ok(plain.includes("activity-total-cost") && plain.includes("activity-blob-cost"));
 	});
 });
 

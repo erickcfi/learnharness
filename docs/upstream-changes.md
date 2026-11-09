@@ -29,3 +29,6 @@ Every upstream file that the fork changes gets one row here. Merges from upstrea
 | `components/settings/subscription-client.ts` | P2-04 | Hosted mode gives no subscription bridge, so no status calls to `/api/subscriptions` (which the front door blocks). |
 | `components/dictation.tsx` | P2-04 | Hosted mode (N13): no mic button, no dictation shortcut, no token pre-fetch from `/api/stt/token`. |
 | `components/settings/keyboard-section.tsx` | P2-04 | Hosted mode lists no shortcut for the hidden controls (dictation, model menu, thinking cycle). |
+| `components/stats-bar.tsx` | W2-6 | Hosted mode hides the session's dollar costs (summary, total, unpriced count, per turn). One switch: `HIDE_COSTS_WHEN_HOSTED` (master, 2026-11-08). |
+| `components/graph-view.tsx` | W2-6 | Hosted mode hides the graph cost pill (`GraphCostControl`), on the graph view and the home page. Same switch. |
+| `components/activity-dock.tsx` | W2-6 | Hosted mode hides background-agent costs (total, per job, job detail). Same switch. |

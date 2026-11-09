@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { CLAUDE_CODE_PROVIDER, sessionCacheHitRate, subscriptionLabels, subscriptionLabel, type cliContextWindowOf, type SessionPricing, type TurnUsage } from "@/src/core";
 import { formatTokens, formatUsd, planCostLabel, prettyModel } from "@/components/usage-format";
 import { ModelControl, catalogLimits, useModelCatalog } from "@/components/model-picker";
+// North Aero fork (W2-6): hosted mode hides the session's dollar costs (flat price).
+import { useCostsHidden } from "@/frontdoor/isolation/hosted";
 
 export function formatContextMeasurement(tokens: number | null, limit: number | null): string {
 	const numerator = tokens === null ? "?" : formatTokens(tokens);
@@ -112,6 +114,7 @@ export function StatsBar({
 	const providers = pricing?.subscriptionProviders ?? subscriptionLabels(turns.map((turn) => turn.model));
 	const cliBilled = turns.some((turn) => turn.model.startsWith(`${CLAUDE_CODE_PROVIDER}:`));
 	const costLabel = planCostLabel(pricedCount > 0 ? cost : null, cliBilled ? [...providers, "CLI"] : providers);
+	const costsHidden = useCostsHidden();
 
 	return (
 		<div
@@ -147,8 +150,8 @@ export function StatsBar({
 				<span data-testid="stats-context">
 					{contextLabel}
 				</span>
-				<span aria-hidden>·</span>
-				<span data-testid="stats-cost">{costLabel}</span>
+				{!costsHidden && <span aria-hidden>·</span>}
+				{!costsHidden && <span data-testid="stats-cost">{costLabel}</span>}
 			</button>
 				{open && (
 					<div
@@ -168,10 +171,12 @@ export function StatsBar({
 							{selectedModel?.startsWith(`${CLAUDE_CODE_PROVIDER}:`) && (
 								<p>Window reported by Claude Code; may be lower for auto-compaction.</p>
 							)}
+							{!costsHidden && (
 							<div className="flex justify-between gap-2">
 								<span>{subscription ? "Usage" : "Total cost"}</span>
 								<span className="tabular-nums text-card-foreground">{costLabel}</span>
 							</div>
+							)}
 							{cacheHitRate !== null && (
 								<div data-testid="stats-cache-hit-rate" className="flex justify-between gap-2">
 									<span>Cache hit rate</span>
@@ -179,7 +184,7 @@ export function StatsBar({
 								</div>
 							)}
 							{providers.includes("ChatGPT") && <a href="https://chatgpt.com/settings/usage" target="_blank" rel="noreferrer" className="underline underline-offset-2">Manage ChatGPT usage</a>}
-							{unpriced > 0 && (
+							{unpriced > 0 && !costsHidden && (
 								<div className="flex justify-between gap-2">
 									<span>Unpriced turns</span>
 									<span className="tabular-nums text-card-foreground">{unpriced}</span>
@@ -201,7 +206,7 @@ export function StatsBar({
 												</span>
 												<span className="flex shrink-0 items-center gap-2 tabular-nums text-card-foreground">
 													<span className="text-muted-foreground">{turn.steps.length} steps</span>
-													<span>{turn.model.startsWith(`${CLAUDE_CODE_PROVIDER}:`) ? "CLI" : subscriptionLabel(turn.model) ?? (c === null ? "—" : formatUsd(c))}</span>
+													{!costsHidden && <span>{turn.model.startsWith(`${CLAUDE_CODE_PROVIDER}:`) ? "CLI" : subscriptionLabel(turn.model) ?? (c === null ? "—" : formatUsd(c))}</span>}
 												</span>
 											</li>
 										);

@@ -1,6 +1,6 @@
 # Route blocks, model lock and tenant walls (W2-6)
 
-Cards P1-05, P2-03, P2-04. PRD C1, C3 requirements 1 to 3, N2, N3, N13, section 4 fact 6. Decided by the master session on 2026-11-08 (both wall layers), with the open points sent to the master in one batch.
+Cards P1-05, P2-03, P2-04. PRD C1, C3 requirements 1 to 3, N2, N3, N13, section 4 fact 6. Decided by the master session on 2026-11-08: both wall layers, then answers to the eight open points (runtime hosted switch, default deny, the settings sections, hidden dollar costs, re-apply at every start, a temp folder per tenant, no page writes, tenant calls through the supervisor).
 
 ## How a request is checked
 
@@ -8,7 +8,7 @@ Cards P1-05, P2-03, P2-04. PRD C1, C3 requirements 1 to 3, N2, N3, N13, section 
 2. It checks the route table: `frontdoor/gateway/route-policy.ts` (the table) and `frontdoor/gateway/route-guard.ts` (applies it).
    - An API route or method not in the table gets **403** (default deny). A test walks `app/api` and fails when a route or method has no row, so a new upstream route is noticed and stays refused until someone classifies it.
    - A blocked API call gets **403** with JSON `{"error": "<plain message>"}`.
-   - A page (any path outside `/api`) passes on GET and HEAD. Any other method on a page is refused (403), because upstream has no Server Actions. No upstream page needs blocking today. A blocked page would redirect home (`BLOCKED_PAGES`).
+   - A page (any path outside `/api`) passes on GET and HEAD. Any other method on a page is refused (403), because upstream has no Server Actions. This applies only to requests that would pass through to a tenant. The front door's own `/account` handlers (and `/admin`, when the dashboard adds it) run before the table, so their POSTs are unaffected. A test shows this for `/account`. No upstream page needs blocking today. A blocked page would redirect home (`BLOCKED_PAGES`).
    - A path with an empty segment (`//`) or an encoded slash or backslash (`%2F`, `%5C`) gets 400, so the front door and Next.js always read the same path.
 3. It passes the request to the student's own server, adding that server's secret header (wall A, below).
 
@@ -51,7 +51,7 @@ Access classes: **allowed** (passes), **read-only** (GET and HEAD pass, nothing 
 | `/api/settings/general` | PUT | allowed | Automatic update checks (desktop only, hidden in hosted mode). |
 | `/api/settings/appearance` | PUT | allowed | Colors and fonts. |
 | `/api/settings/graph` | PUT | allowed | Graph settings. |
-| `/api/settings/compaction` | PUT | allowed | When long sessions are summarized. Open point Q3 in the master batch. |
+| `/api/settings/compaction` | PUT | allowed | When long sessions are summarized. Left to the student for now; the master revisits it after T7. |
 | `/api/settings/agent` | PUT | **checked** | Tool switches, quiz style, graph tools, prompt switches and search engine. Refused unless `models` (per-role overrides) is absent or empty and `fileAccess` equals the Owner's library-only section. |
 | `/api/settings/chat` | PUT | **blocked** | The chat default model and thinking level (N2). |
 | `/api/settings/models` | PUT | **blocked** | The model slots (N2, fact 6). |
@@ -84,6 +84,7 @@ One switch: `LH_HOSTED=1`. The supervisor sets it for every tenant server, in th
 - In Settings → Agent, the Models group, File access, Search engine and System prompts are hidden. Their reads of `/api/keys` and `/api/settings/prompts` are skipped.
 - The dictation mic is hidden. Its shortcut and its token pre-fetch are off.
 - Settings → Keyboard lists no shortcut for the hidden controls (dictation, model menu, thinking cycle).
+- Dollar costs are hidden (master, 2026-11-08, pending Erick's word; students pay a flat price): the graph cost pill, the session cost and per-turn costs in session stats, and background-agent costs. One constant switches this: `HIDE_COSTS_WHEN_HOSTED` in `frontdoor/isolation/hosted.tsx`. Set it to `false` to show them again. `GET /api/graph/costs` stays readable; it is the student's own usage. The Owner still sees every cost on the dashboard.
 - The subscription status calls to `/api/subscriptions` are not made.
 
 With `LH_HOSTED` unset, upstream's desktop and dev behavior is unchanged. Known gap: Next's built-in 404 page is prerendered at build time, so its settings dialog would still show the hidden sections. The route table refuses those requests anyway.
