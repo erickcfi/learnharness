@@ -24,6 +24,10 @@ Decision and spike: `docs/decisions/2026-11-08-x5-front-door-spike.md`.
 | `app/account/` | The front door's Next.js pages. Clerk is set up in `app/account/layout.tsx` only. |
 | `app/(public)/`, `marketing/` | The public pages: landing, How it works, Help, legal placeholders (W2-11). Text in `marketing/copy.ts`. |
 | `plans/` | Prices and trial terms, the one place they live. |
+| `admin/`, `app/admin/` | The Owner's dashboard at `/admin` (W2-9): roles, tenant table, consent and session text, non-aviation flag, thresholds, pause buttons. See `admin/README.md`, including the one-time step that makes the Owner. |
+| `study-time/` | Active study time (PD1) from a heartbeat on the tutor's pages, per upstream chat. |
+| `library/` | The source library's upload, list and remove (P5-01). |
+| `sharing/`, `app/account/sharing/` | The student's session-text switch (D19). |
 | `proxy.ts` | Clerk's middleware, for the `/account` pages only. |
 
 Tests: `tests/frontdoor-*.test.ts` (run by the root `npm test`).
@@ -98,6 +102,7 @@ It sets `NODE_ENV=production` and runs `server.ts` with `tsx`.
 | `<volume>/auth/<tenant id>.json` | Each tenant server's key file (`LH_AUTH_FILE`). It holds no key: the meter has the keys. |
 | `<volume>/library/` | The shared source library (`LH_LIBRARY_DIR`), the only folder the tutors' file tools may read. Made at start if missing. |
 | `<volume>/metering/` | `pending-usage.jsonl` and `rejected-usage.jsonl`, only after a database outage. |
+| `<volume>/.library-incoming/` | Library uploads while they stream in (owner-only). Empty between uploads. |
 
 **Variables:**
 

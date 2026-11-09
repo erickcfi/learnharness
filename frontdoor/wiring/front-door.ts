@@ -27,6 +27,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from "node:net";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createDashboard } from "../admin/wiring.ts";
 import { type Db, markTenantReady } from "../db/index.ts";
 import type { ClerkGateway } from "../gateway/auth.ts";
 import { createClerkGateway } from "../gateway/clerk.ts";
@@ -142,9 +143,28 @@ export async function startFrontDoor(options: FrontDoorOptions): Promise<FrontDo
 		onExit: (tenantId, code, signal) => log(`tenant ${tenantId} server stopped (code ${code}, signal ${signal})`),
 	});
 
+	const clerk = options.clerk ?? createClerkGateway(config.clerk);
+	// W2-9: the Owner's dashboard at /admin, study time (PD1), the non-aviation flag (admin/wiring.ts).
+	const dashboard = createDashboard({
+		db: db ?? null,
+		sessionSecret: config.sessionSecret,
+		clerk,
+		secureCookies: config.secureCookies,
+		trustForwardedHeaders: config.trustForwardedHeaders,
+		frontDoorApp: options.frontDoorApp,
+		supervisor,
+		libraryDir: library,
+		clerkSecretKey: config.clerk.secretKey || undefined,
+		anthropic: { apiKey: wiring.anthropicApiKey, ...(options.upstream?.anthropicBaseUrl ? { baseUrl: options.upstream.anthropicBaseUrl } : {}) },
+		labelTopics: false,
+		log,
+	});
+
 	const gateway = createGateway({
 		accounts,
-		clerk: options.clerk ?? createClerkGateway(config.clerk),
+		clerk,
+		admin: dashboard.admin,
+		studentRoutes: dashboard.studentRoutes,
 		supervisor,
 		provision: async (tenantId) => {
 			provisionTenant({ volumeDir: config.volumeDir, tenantId, fileAccess: libraryOnly });
@@ -170,6 +190,7 @@ export async function startFrontDoor(options: FrontDoorOptions): Promise<FrontDo
 		close() {
 			closing ??= (async () => {
 				const stopped = closeServer(server);
+				await dashboard.close();
 				await supervisor.stopAll();
 				await stopped;
 				// Every usage write already started, then every row still waiting.

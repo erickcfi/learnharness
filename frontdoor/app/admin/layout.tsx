@@ -1,0 +1,29 @@
+import type { Metadata, Viewport } from "next";
+import type { ReactNode } from "react";
+import { AdminNav } from "./_components/nav.tsx";
+import "./admin.css";
+
+/**
+ * The Owner's dashboard (W2-9, C7). Only the Owner reaches these pages: the
+ * gateway checks the login and role before Next.js sees the request
+ * (frontdoor/admin/handler.ts), and each page checks again (_lib/guard.ts).
+ * Never indexed: noindex here and in every answer's X-Robots-Tag, and in
+ * neither the sitemap nor robots.txt.
+ */
+export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+	title: "Ground Tutor admin",
+	robots: { index: false, follow: false },
+};
+
+export const viewport: Viewport = { width: "device-width", initialScale: 1, themeColor: "#1a1b1d" };
+
+export default function AdminLayout({ children }: { children: ReactNode }) {
+	return (
+		<div className="ad">
+			<AdminNav />
+			<main className="ad-main">{children}</main>
+		</div>
+	);
+}
