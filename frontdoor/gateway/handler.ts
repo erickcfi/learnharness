@@ -17,11 +17,15 @@
  *   public pages    GET   How it works, Help, /legal/*, robots.txt and
  *                         sitemap.xml come from the front door's app, login
  *                         or not (W2-11, marketing/public-paths.ts)
+ *   /admin/...            the Owner's dashboard (frontdoor/admin): login
+ *                         and Owner role checked there, 403 for anyone else
  *   /               GET   with no login: the landing page, from the front
  *                         door's app. With a login: the tutor, as below.
  *   everything else       needs the login cookie. Without it, /api gets 401
  *                         and a page redirects to sign-in. With it, the
- *                         request passes through to the tenant's server.
+ *                         route table decides (W2-6, route-guard.ts), and
+ *                         the request passes through to the tenant's server
+ *                         with that server's own secret header.
  *
  * Routing uses the normalized path ("..", "%2e%2e" resolved), and that same
  * path is what Next.js or the tenant receives.
@@ -29,11 +33,13 @@
 import type { IncomingMessage, OutgoingHttpHeaders, ServerResponse } from "node:http";
 import type { BillingGatewayHook } from "../billing/gateway-hook.ts";
 import { isAlwaysPublicPath, LANDING_PATH } from "../marketing/public-paths.ts";
+import type { TenantGate } from "../pause/gate.ts";
 import type { AccountStore } from "../tenants/accounts.ts";
 import type { ClerkGateway } from "./auth.ts";
 import { clearCookie, parseCookies, serializeCookie } from "./cookies.ts";
 import { passThrough } from "./passthrough.ts";
 import { FRONT_DOOR_PREFIX, safeReturnPath } from "./return-path.ts";
+import { guardRoute, studentRoutePolicy, type RoutePolicy } from "./route-guard.ts";
 import {
 	AGE_COOKIE,
 	AGE_MAX_AGE_SECONDS,
@@ -51,7 +57,12 @@ export interface GatewayDeps {
 	/** Read on every request, so the store can be swapped (tests). */
 	accounts: AccountStore;
 	clerk: ClerkGateway;
-	supervisor: { ensureRunning(tenantId: string): Promise<number> };
+	/** endpoint() (W2-6) also gives the tenant's secret header. Without it the
+	 *  request goes without the secret, and a hosted tenant refuses it. */
+	supervisor: { ensureRunning(tenantId: string): Promise<number>; endpoint?(tenantId: string): Promise<{ port: number; headers: Record<string, string> }> };
+	/** What a student may reach (W2-6, gateway/route-guard.ts). Default: the
+	 *  production table with no File access template. */
+	routePolicy?: RoutePolicy;
 	/** Creates the tenant folder and writes the settings template (provisioning.ts). */
 	provision(tenantId: string): void | Promise<void>;
 	sessionSecret: Uint8Array;
@@ -59,6 +70,8 @@ export interface GatewayDeps {
 	trustForwardedHeaders: boolean;
 	/** The front door's Next.js request handler, for /account pages. */
 	frontDoorApp(req: IncomingMessage, res: ServerResponse): unknown;
+	/** W2-7 (pause/gate.ts): the pause and plan-ended screens, and the export and record links. */
+	tenantGate?: TenantGate;
 	/** W2-10: /account/reports and /account/unsubscribe (reports/pages.ts). True when it answered. */
 	reportPages?(req: IncomingMessage, res: ServerResponse, url: URL): Promise<boolean>;
 	now?: () => number;
@@ -66,6 +79,10 @@ export interface GatewayDeps {
 	log?: (message: string) => void;
 	/** W2-8: Stripe's webhook, the /account/billing routes, and the trial gate (billing/gateway-hook.ts). */
 	billing?: BillingGatewayHook;
+	/** W2-9: the front door's own routes for a signed-in student, after the login check: the study-time heartbeat (P3-02) and the session-text switch (P3-04). See admin/wiring.ts. */
+	studentRoutes?: { handles(pathname: string): boolean; handle(req: IncomingMessage, res: ServerResponse, tenantId: string, pathname: string): Promise<void> };
+	/** P3-01: /admin and everything under it (frontdoor/admin). Without it, /admin is 404. */
+	admin?: { handle(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> };
 }
 
 const MAX_FORM_BYTES = 4096;
@@ -74,6 +91,7 @@ const firstValue = (value: string | string[] | undefined) => (Array.isArray(valu
 
 export function createGateway(deps: GatewayDeps): (req: IncomingMessage, res: ServerResponse) => void {
 	const now = () => (deps.now ? deps.now() : Date.now());
+	const defaultPolicy = studentRoutePolicy();
 	const cookie = (name: string, value: string, maxAgeSeconds: number) => serializeCookie(name, value, { maxAgeSeconds, secure: deps.secureCookies });
 	const clear = (name: string) => clearCookie(name, deps.secureCookies);
 
@@ -233,22 +251,32 @@ export function createGateway(deps: GatewayDeps): (req: IncomingMessage, res: Se
 			setCookie.push(cookie(SESSION_COOKIE, await signSession(current, deps.sessionSecret, now()), SESSION_MAX_AGE_SECONDS));
 		}
 
-		// W2-8: the /account/billing routes, and the trial gate (plans screen, 402 on new turns).
+		// W2-8: billing's own pages (plans data, Checkout, Buy now, portal) first, so a paused student or one
+		// whose plan ended can still manage billing or subscribe again.
 		const billingCtx = { tenantId: current.tenantId, userId: current.userId, pathname, target, origin: `${proto(req)}://${host(req)}`, setCookie };
-		if (deps.billing && (await deps.billing.handle(req, res, billingCtx))) return;
+		if (deps.billing?.owns(pathname) && (await deps.billing.handle(req, res, billingCtx))) return;
+		// W2-9: study-time heartbeat (PD1) and the session-text switch, for this login's tenant.
+		if (deps.studentRoutes?.handles(pathname)) return deps.studentRoutes.handle(req, res, current.tenantId, pathname);
+		// W2-6: route blocks and the model lock (gateway/route-guard.ts).
+		const verdict = await guardRoute(req, pathname, deps.routePolicy ?? defaultPolicy);
+		if (verdict.kind === "refuse") return sendJson(res, verdict.status, { error: verdict.message }, setCookie);
+		if (verdict.kind === "redirect-home") return redirect(res, 302, "/", setCookie);
+		// W2-7: paused, plan ended, or deleted (pause/gate.ts). Before the tenant's server is started.
+		const signOut = () => signInRequired(req, res, pathname, target, [clear(SESSION_COOKIE)]);
+		if (deps.tenantGate && (await deps.tenantGate.handle(req, res, { tenantId: current.tenantId, userId: current.userId, pathname, setCookie, signOut }))) return;
+		// W2-8: the trial gate (plans screen, 402 on new turns), after the pause and plan-ended screens.
+		if (deps.billing && !deps.billing.owns(pathname) && (await deps.billing.handle(req, res, billingCtx))) return;
 
 		let port: number;
+		let tenantHeaders: Record<string, string> = {};
 		try {
-			port = await deps.supervisor.ensureRunning(current.tenantId);
+			if (deps.supervisor.endpoint) ({ port, headers: tenantHeaders } = await deps.supervisor.endpoint(current.tenantId));
+			else port = await deps.supervisor.ensureRunning(current.tenantId);
 		} catch (error) {
 			deps.log?.(`tenant ${current.tenantId} could not start: ${(error as Error).message}`);
 			return tutorUnavailable(res, isApi(pathname));
 		}
-		// TODO(P3-02, study time, PD1): log active study time here, since every
-		// request and stream passes this point. Write the upstream chat id
-		// (from /api/chats/<id>/...) into study_time.chat_id (master decision,
-		// 2026-11-08). Outside this package (w1-front-door).
-		passThrough(req, res, { port, path: target, proto: proto(req), setCookie });
+		passThrough(req, res, { port, path: target, proto: proto(req), setCookie, tenantHeaders, body: verdict.body });
 	}
 
 	async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -263,6 +291,8 @@ export function createGateway(deps: GatewayDeps): (req: IncomingMessage, res: Se
 		if (deps.billing?.owns(pathname)) return handleTenantRequest(req, res, pathname, target);
 
 		if (pathname === FRONT_DOOR_PREFIX || pathname.startsWith(`${FRONT_DOOR_PREFIX}/`)) {
+			// W2-7: /account/export and /account/record need the login, so they take the tenant path.
+			if (deps.tenantGate?.ownsPath(pathname)) return handleTenantRequest(req, res, pathname, target);
 			req.url = target;
 			if (pathname === FRONT_DOOR_PREFIX || pathname === `${FRONT_DOOR_PREFIX}/`) return redirect(res, 302, `${FRONT_DOOR_PREFIX}/sign-in`);
 			if (pathname === `${FRONT_DOOR_PREFIX}/age` && req.method === "POST") return handleAge(req, res);
@@ -279,6 +309,8 @@ export function createGateway(deps: GatewayDeps): (req: IncomingMessage, res: Se
 			await deps.frontDoorApp(req, res);
 			return;
 		}
+		// P3-01: the Owner's dashboard (frontdoor/admin checks the login and the role).
+		if (pathname === "/admin" || pathname.startsWith("/admin/")) return deps.admin ? deps.admin.handle(req, res, url) : sendJson(res, 404, { error: "Not found." });
 		return handleTenantRequest(req, res, pathname, target);
 	}
 

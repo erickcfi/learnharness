@@ -19,6 +19,7 @@ import { assertEmailEnv } from "../email/config.ts";
 import { loadConfig, type FrontDoorConfig } from "../gateway/config.ts";
 import { runStartupChecks, type StartupCheck } from "../gateway/startup-checks.ts";
 import { assertProductionSafe } from "../production-safety/index.ts";
+import { assertTrialHashKey } from "../retention/trial.ts";
 
 type Env = Readonly<Record<string, string | undefined>>;
 
@@ -60,7 +61,7 @@ const assertFrontDoorConfig: StartupCheck = (env) => {
 };
 
 /** Every start check, in order. Any failure stops the start, with every reason listed. */
-export const STARTUP_CHECKS: readonly StartupCheck[] = [assertProductionSafe, assertWiringEnv, assertFrontDoorConfig, assertEmailEnv, assertBillingEnv];
+export const STARTUP_CHECKS: readonly StartupCheck[] = [assertProductionSafe, assertWiringEnv, assertFrontDoorConfig, assertTrialHashKey, assertEmailEnv, assertBillingEnv];
 
 export interface WiringConfig {
 	production: boolean;

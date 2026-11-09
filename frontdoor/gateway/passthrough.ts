@@ -20,13 +20,17 @@ function connectionTokens(value: string | string[] | undefined): Set<string> {
 	);
 }
 
-/** What the tenant receives: the browser's headers minus connection headers
- *  and login cookies, plus the usual forwarding headers. */
+/** The header that carries a tenant server's own secret (W2-6 wall A). Only
+ *  the front door sets it; a browser's copy is always dropped. */
+export const TENANT_SECRET_HEADER = "x-learnharness-desktop";
+
+/** What the tenant receives: the browser's headers minus connection headers,
+ *  login cookies and any tenant-secret header, plus the usual forwarding headers. */
 export function forwardRequestHeaders(req: IncomingMessage, proto: string): OutgoingHttpHeaders {
 	const named = connectionTokens(req.headers.connection);
 	const headers: OutgoingHttpHeaders = {};
 	for (const [name, value] of Object.entries(req.headers)) {
-		if (value === undefined || HOP_BY_HOP.has(name) || named.has(name) || name === "cookie") continue;
+		if (value === undefined || HOP_BY_HOP.has(name) || named.has(name) || name === "cookie" || name === TENANT_SECRET_HEADER) continue;
 		if (name.startsWith("x-forwarded-")) continue;
 		headers[name] = value;
 	}
@@ -59,13 +63,23 @@ export interface PassThroughOptions {
 	proto: string;
 	/** Cookies the front door sets on this answer (a renewed login). */
 	setCookie?: string[];
+	/** Headers the front door adds for the tenant (its secret, W2-6 wall A). */
+	tenantHeaders?: Record<string, string>;
+	/** The request body, when the front door already read it (route-guard.ts).
+	 *  Sent as is, in place of the browser's stream. */
+	body?: Buffer;
 }
 
 export function passThrough(req: IncomingMessage, res: ServerResponse, options: PassThroughOptions): void {
+	const headers = { ...forwardRequestHeaders(req, options.proto), ...(options.tenantHeaders ?? {}) };
+	if (options.body) headers["content-length"] = String(options.body.length);
 	const upstream = httpRequest(
-		{ host: "127.0.0.1", port: options.port, method: req.method, path: options.path, headers: forwardRequestHeaders(req, options.proto) },
+		{ host: "127.0.0.1", port: options.port, method: req.method, path: options.path, headers },
 		(tenantRes) => {
 			res.writeHead(tenantRes.statusCode ?? 502, responseHeaders(tenantRes, options.setCookie ?? []));
+			// A quiet event stream (upstream's /api/events sends its first frame
+			// after up to 25 s) must open now, not at its first frame (W2-6).
+			if (String(tenantRes.headers["content-type"] ?? "").includes("text/event-stream")) res.flushHeaders();
 			tenantRes.pipe(res);
 			tenantRes.on("error", () => res.destroy());
 		},
@@ -82,5 +96,6 @@ export function passThrough(req: IncomingMessage, res: ServerResponse, options: 
 	res.on("close", () => {
 		if (!res.writableFinished) upstream.destroy();
 	});
-	req.pipe(upstream);
+	if (options.body) upstream.end(options.body);
+	else req.pipe(upstream);
 }

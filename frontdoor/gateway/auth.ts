@@ -12,4 +12,6 @@ export interface ClerkGateway {
 	authenticate(request: Request): Promise<ClerkAuthResult>;
 	/** Whether a Clerk session is still active (the 5-minute re-check). */
 	isSessionActive(sessionId: string): Promise<boolean>;
+	/** W2-7: deletes a student's Clerk user on day 91. A user Clerk no longer has counts as deleted. */
+	deleteUser?(userId: string): Promise<void>;
 }

@@ -3,6 +3,8 @@
 import { useMemo } from "react";
 import type { ChatGPTControlBridge, ChatGPTStatus, NativeSubscriptionControlBridge, NativeSubscriptionProviderId, NativeSubscriptionStatus } from "@/src/core";
 import { useNotifyHub, type createNotifyHub } from "@/components/server-events";
+// North Aero fork (W2-6): hosted mode has no subscriptions, so no status calls.
+import { useHosted } from "@/frontdoor/isolation/hosted";
 
 type Hub = ReturnType<typeof createNotifyHub> | null;
 type Reply<T> = { value: T; browserAction?: string; error?: string };
@@ -69,9 +71,11 @@ export function createWebNativeBridge(hub: Hub): NativeSubscriptionControlBridge
 }
 export function useChatGPTBridge(): ChatGPTControlBridge | undefined {
 	const hub = useNotifyHub();
-	return useMemo(() => typeof window === "undefined" ? undefined : window.lh?.subscriptionTransport !== "web" && window.lh?.chatgpt ? window.lh.chatgpt : createWebChatGPTBridge(hub), [hub]);
+	const hosted = useHosted();
+	return useMemo(() => typeof window === "undefined" || hosted ? undefined : window.lh?.subscriptionTransport !== "web" && window.lh?.chatgpt ? window.lh.chatgpt : createWebChatGPTBridge(hub), [hub, hosted]);
 }
 export function useNativeSubscriptionBridge(): NativeSubscriptionControlBridge | undefined {
 	const hub = useNotifyHub();
-	return useMemo(() => typeof window === "undefined" ? undefined : window.lh?.subscriptionTransport !== "web" && window.lh?.subscriptions ? window.lh.subscriptions : createWebNativeBridge(hub), [hub]);
+	const hosted = useHosted();
+	return useMemo(() => typeof window === "undefined" || hosted ? undefined : window.lh?.subscriptionTransport !== "web" && window.lh?.subscriptions ? window.lh.subscriptions : createWebNativeBridge(hub), [hub, hosted]);
 }
