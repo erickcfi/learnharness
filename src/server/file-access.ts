@@ -13,7 +13,19 @@ export function expandFolder(folder: string, home: string = os.homedir()): strin
 	return path.resolve(folder);
 }
 
+/** North Aero fork (PRD C5, docs/upstream-changes.md): the front door sets
+ * LH_LIBRARY_DIR, which fixes File access to that one folder whatever
+ * settings.json says. An empty or relative value blocks every read. */
+function lockedLibraryPolicy(): FileAccessPolicy | null {
+	const library = process.env.LH_LIBRARY_DIR;
+	if (library === undefined) return null;
+	if (!path.isAbsolute(library)) return { restricted: true, folders: [], error: "File-access configuration error: LH_LIBRARY_DIR must be an absolute path. Learner-file access is blocked." };
+	return { restricted: true, folders: [path.resolve(library)] };
+}
+
 export function fileAccessPolicy(): FileAccessPolicy {
+	const locked = lockedLibraryPolicy();
+	if (locked) return locked;
 	const result = readFileAccessSettings();
 	if (!result.ok) return { restricted: true, folders: [], error: result.error };
 	return { restricted: result.settings.restricted, folders: result.settings.folders.map((folder) => expandFolder(folder)) };
