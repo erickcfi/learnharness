@@ -271,7 +271,8 @@ describe("public page HTML loads no Clerk script", () => {
 			false,
 			packages.join(", "),
 		);
-		assert.deepEqual(packages, ["next", "next/font/google", "react"]);
+		// Node built-ins (node:fs reads LICENSE for /legal/license at build time) run on the server only and are never Clerk.
+		assert.deepEqual(packages.filter((p) => !p.startsWith("node:")), ["next", "next/font/google", "react"]);
 	});
 
 	const BUILT = path.join(FRONTDOOR, ".next", "server", "app");

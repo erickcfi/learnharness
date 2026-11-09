@@ -6,6 +6,7 @@
  * happen.
  */
 import type { ReactNode } from "react";
+import { COPYRIGHT_NOTICE, LICENSE_LINK_LABEL, LICENSE_NOTICE } from "../../legal-notices/index.ts";
 import { SOURCE_LINK_LABEL, sourceUrl } from "../../source-link/index.ts";
 import { BRAND, CTA, FOOTER, NAV } from "../copy.ts";
 import { HELP_PATH, HOW_IT_WORKS_PATH, LANDING_PATH, LEGAL_PATHS, SIGN_IN_PATH, SIGN_UP_PATH } from "../public-paths.ts";
@@ -73,12 +74,17 @@ export function SiteFooter({ commit, year }: { commit?: string | null; year: num
 					<a href={sourceUrl(commit)} rel="noopener">
 						{SOURCE_LINK_LABEL}
 					</a>
+					<a href={LEGAL_PATHS.license}>{LICENSE_LINK_LABEL}</a>
 				</nav>
 			</div>
 			<div className="na-wrap na-footer-base">
 				<span>{FOOTER.copyright(year)}</span>
 				<span>{FOOTER.builtOn}</span>
 			</div>
+			{/* AGPL "Appropriate Legal Notices" (LICENSE section 0 and 5(d)): copyright, permission, no warranty, the license. */}
+			<p className="na-wrap na-footer-fine" data-testid="legal-notice">
+				{COPYRIGHT_NOTICE} {LICENSE_NOTICE} <a href={LEGAL_PATHS.license}>{LICENSE_LINK_LABEL}</a>
+			</p>
 		</footer>
 	);
 }

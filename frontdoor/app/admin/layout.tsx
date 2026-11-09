@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
+import { LegalNoticeLine } from "../../legal-notices/notice.tsx";
 import { AdminNav } from "./_components/nav.tsx";
 import "./admin.css";
 
@@ -24,6 +25,10 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 		<div className="ad">
 			<AdminNav />
 			<main className="ad-main">{children}</main>
+			{/* AGPL legal notices (frontdoor/legal-notices). */}
+			<footer style={{ padding: "12px 16px" }}>
+				<LegalNoticeLine commit={process.env.RAILWAY_GIT_COMMIT_SHA} />
+			</footer>
 		</div>
 	);
 }

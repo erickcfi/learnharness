@@ -20,6 +20,8 @@ export const LEGAL_PATHS = {
 	terms: "/legal/terms",
 	privacy: "/legal/privacy",
 	aiNotice: "/legal/ai-notice",
+	/** The AGPL notices and full license text (frontdoor/legal-notices). */
+	license: "/legal/license",
 } as const;
 
 /** Where "Start your free trial" leads: the 18+ box, then Clerk's form. */
@@ -31,7 +33,7 @@ export const BRAND_ICON_PATH = "/account/brand/icon.svg";
 export const OG_IMAGE_PATH = "/account/brand/og";
 
 /** Every public page, for the sitemap. */
-export const PUBLIC_PAGES: readonly string[] = [LANDING_PATH, HOW_IT_WORKS_PATH, HELP_PATH, LEGAL_PATHS.terms, LEGAL_PATHS.privacy, LEGAL_PATHS.aiNotice];
+export const PUBLIC_PAGES: readonly string[] = [LANDING_PATH, HOW_IT_WORKS_PATH, HELP_PATH, LEGAL_PATHS.terms, LEGAL_PATHS.privacy, LEGAL_PATHS.aiNotice, LEGAL_PATHS.license];
 
 const ALWAYS_PUBLIC = new Set<string>([HOW_IT_WORKS_PATH, HELP_PATH, "/robots.txt", "/sitemap.xml"]);
 

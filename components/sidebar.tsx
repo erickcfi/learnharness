@@ -8,6 +8,7 @@ import { DeleteSessionDialog } from "@/components/delete-session-dialog";
 import type { ChatDeleteMode } from "@/src/core";
 import { CodeIcon, DumbbellIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
 import { SOURCE_LINK_LABEL, sourceUrl } from "@/frontdoor/source-link/index.ts";
+import { LICENSE_LINK_LABEL, LICENSE_PATH } from "@/frontdoor/legal-notices/index.ts";
 import { ActivitySection } from "@/components/activity-dock";
 import { CoverageMenuBlock } from "@/components/extraction-coverage";
 import { LhMark } from "@/components/lh-mark";
@@ -297,6 +298,23 @@ export function SourceCodeLink() {
 		>
 			<CodeIcon className="size-3" />
 			{SOURCE_LINK_LABEL}
+		</a>
+	);
+}
+
+/** North Aero fork (AGPL "Appropriate Legal Notices", docs/upstream-changes.md):
+ *  a prominent menu item that opens the copyright, no-warranty and license
+ *  page, which the front door serves. Exported for render tests. */
+export function LicenseLink() {
+	return (
+		<a
+			href={LICENSE_PATH}
+			target="_blank"
+			rel="noreferrer"
+			data-testid="license-link"
+			className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[10px] uppercase tracking-wider text-muted-foreground/70 transition-colors hover:bg-accent hover:text-foreground"
+		>
+			{LICENSE_LINK_LABEL}
 		</a>
 	);
 }
@@ -884,6 +902,7 @@ function SessionsSidebar() {
 						</Hint>
 						<a href="/account/plans" data-testid="account-link" className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[10px] uppercase tracking-wider text-muted-foreground/70 transition-colors hover:bg-accent hover:text-foreground">Account</a>{/* North Aero fork (W2-8): the student's plan and billing; docs/upstream-changes.md */}
 						<SourceCodeLink />
+						<LicenseLink />
 					</div>
 				</div>
 

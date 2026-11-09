@@ -170,7 +170,7 @@ describe("pages that are always public", () => {
 	const always = [...PUBLIC_PAGES.filter((p) => p !== "/"), "/robots.txt", "/sitemap.xml"];
 
 	it("lists the pages the brief names", () => {
-		assert.deepEqual([...PUBLIC_PAGES].sort(), ["/", "/help", "/how-it-works", LEGAL_PATHS.aiNotice, LEGAL_PATHS.privacy, LEGAL_PATHS.terms].sort());
+		assert.deepEqual([...PUBLIC_PAGES].sort(), ["/", "/help", "/how-it-works", LEGAL_PATHS.aiNotice, LEGAL_PATHS.privacy, LEGAL_PATHS.terms, LEGAL_PATHS.license].sort());
 	});
 
 	it("serves them from the front door's app with no login", async () => {
