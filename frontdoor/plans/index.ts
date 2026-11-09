@@ -47,6 +47,24 @@ export const TRIAL: Trial = {
 	convertsTo: "monthly",
 };
 
+/**
+ * Model cost that also ends trial use, even before the study hours (PD2,
+ * approved 2026-11-07). The trial gate (billing/trial.ts) reads it.
+ */
+export const TRIAL_COST_CAP_USD = 10;
+
+/**
+ * Each plan's Stripe price lookup key (W2-8). Price ids differ between
+ * Stripe's test mode and live mode; a lookup key is the same in both. The
+ * setup script (billing/setup.ts) creates each price from PLANS and gives it
+ * this key; the front door finds the price by the key at run time.
+ */
+export const STRIPE_LOOKUP_KEYS: Readonly<Record<PlanId, string>> = {
+	monthly: "ground_tutor_monthly",
+	quarterly: "ground_tutor_quarterly",
+	annual: "ground_tutor_annual",
+};
+
 /** "$69", or "$59.67" when cents are needed. */
 export function formatUsd(amount: number): string {
 	const whole = Number.isInteger(amount);

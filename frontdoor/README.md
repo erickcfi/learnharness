@@ -24,6 +24,7 @@ Decision and spike: `docs/decisions/2026-11-08-x5-front-door-spike.md`.
 | `app/account/` | The front door's Next.js pages. Clerk is set up in `app/account/layout.tsx` only. |
 | `app/(public)/`, `marketing/` | The public pages: landing, How it works, Help, legal placeholders (W2-11). Text in `marketing/copy.ts`. |
 | `plans/` | Prices and trial terms, the one place they live. |
+| `billing/` | Stripe (W2-8): Checkout with the trial, the 2-hour trial gate, Buy now, the customer portal, webhooks, coupons, billing emails. Pages in `app/account/plans/`. See `billing/README.md` for the Stripe settings and variables. |
 | `proxy.ts` | Clerk's middleware, for the `/account` pages only. |
 
 Tests: `tests/frontdoor-*.test.ts` (run by the root `npm test`).
@@ -110,6 +111,11 @@ It sets `NODE_ENV=production` and runs `server.ts` with `tsx`.
 | `ANTHROPIC_API_KEY` | The real Anthropic key. Only the meter uses it. | Yes | Yes |
 | `TAVILY_API_KEY` | The real Tavily key. Only the meter uses it. | Yes | Yes |
 | `SUPABASE_DB_URL` | The Supabase session pooler connection string (IPv4, port 5432), from Supabase's Connect panel. It holds the database password. TLS is required unless the string sets `sslmode`. | Yes | Yes |
+| `STRIPE_SECRET_KEY` | Stripe's secret key (`sk_test_...` on staging). See `billing/README.md`. | Yes | Yes, unless `FRONTDOOR_BILLING=off` |
+| `STRIPE_WEBHOOK_SECRET` | The Stripe webhook endpoint's signing secret (`whsec_...`). | Yes | Yes, unless `FRONTDOOR_BILLING=off` |
+| `LH_TRIAL_HASH_KEY` | Keys the one-way hash of trial emails. 32+ random characters. Never change it. | Yes | Yes, unless `FRONTDOOR_BILLING=off` |
+| `FRONTDOOR_PUBLIC_URL` | The site's address for links in billing emails. Default: the first `FRONTDOOR_AUTHORIZED_PARTIES` origin. | No | Recommended |
+| `FRONTDOOR_BILLING` | `off`: no Stripe, no plans screen, no trial gate. Staging only, before Stripe test mode is set up. | No | Never at launch |
 | `FRONTDOOR_AUTHORIZED_PARTIES` | The site's origins, comma-separated, for example `https://ground.flynorthaero.com` and the staging address. Clerk logins are accepted only from these. | No | Recommended |
 | `CLERK_JWT_KEY` | Clerk's PEM public key: checks logins without a call to Clerk. | No (public) | No |
 | `FRONTDOOR_VOLUME` | The volume's mount path. Default `/data`. | No | Only if not `/data` |

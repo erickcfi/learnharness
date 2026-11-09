@@ -27,6 +27,12 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from "node:net";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { billingOff, loadBillingConfig } from "../billing/config.ts";
+import { clerkEmailLookup, type EmailLookup } from "../billing/clerk-email.ts";
+import { createBillingCore, siteUrlFrom } from "../billing/core.ts";
+import { type BillingGatewayHook, createBillingHook, createBillingOffHook } from "../billing/gateway-hook.ts";
+import { databaseRetention, type EmailSender, type RetentionHooks } from "../billing/hooks.ts";
+import { createStripeClient, type StripeApi } from "../billing/stripe-api.ts";
 import { type Db, markTenantReady } from "../db/index.ts";
 import type { ClerkGateway } from "../gateway/auth.ts";
 import { createClerkGateway } from "../gateway/clerk.ts";
@@ -63,6 +69,14 @@ export interface FrontDoorOptions {
 	db?: Db;
 	/** Tests only: where the meter forwards (fakes on 127.0.0.1). Never set from the environment. */
 	upstream?: { anthropicBaseUrl?: string; tavilyBaseUrl?: string };
+	/** W2-8. Default: Stripe's client for STRIPE_SECRET_KEY. Tests pass the stand-in (billing/testing.ts). */
+	stripe?: StripeApi;
+	/** W2-8. Default: Clerk's primary email for the user. */
+	emailLookup?: EmailLookup;
+	/** W2-8. Sign-up confirmations and annual renewal notices. Default: none (each skipped email is logged). The master wires w2-email's sender. */
+	billingEmail?: EmailSender;
+	/** W2-8. Default: the database's retention calls. The master wires w2-pause's startRetention. */
+	retention?: RetentionHooks;
 	/** Operational lines. Never given session text or email addresses. */
 	log?: (line: string) => void;
 }
@@ -142,9 +156,32 @@ export async function startFrontDoor(options: FrontDoorOptions): Promise<FrontDo
 		onExit: (tenantId, code, signal) => log(`tenant ${tenantId} server stopped (code ${code}, signal ${signal})`),
 	});
 
+	// Billing (W2-8): Stripe, the plans screen and the trial gate. Off with
+	// FRONTDOOR_BILLING=off, or (outside production only) with no Stripe
+	// settings or no database; production refuses to start without them.
+	const billingConfig = loadBillingConfig(options.env);
+	let billing: BillingGatewayHook;
+	if (billingConfig && db) {
+		const core = createBillingCore({
+			db,
+			stripe: options.stripe ?? createStripeClient(billingConfig.secretKey),
+			retention: options.retention ?? databaseRetention(db),
+			email: options.billingEmail ?? null,
+			webhookSecret: billingConfig.webhookSecret,
+			trialHashKey: billingConfig.trialHashKey,
+			siteUrl: siteUrlFrom(options.env),
+			log,
+		});
+		billing = createBillingHook(core, { emailFor: options.emailLookup ?? clerkEmailLookup(config.clerk.secretKey) });
+	} else {
+		billing = createBillingOffHook();
+		log(billingOff(options.env) ? "billing off (FRONTDOOR_BILLING=off): no plans screen, no trial gate" : "billing not configured (no Stripe settings or no database): no plans screen, no trial gate");
+	}
+
 	const gateway = createGateway({
 		accounts,
 		clerk: options.clerk ?? createClerkGateway(config.clerk),
+		billing,
 		supervisor,
 		provision: async (tenantId) => {
 			provisionTenant({ volumeDir: config.volumeDir, tenantId, fileAccess: libraryOnly });

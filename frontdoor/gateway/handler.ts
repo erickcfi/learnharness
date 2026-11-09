@@ -7,6 +7,10 @@
  *                         sign-up: records the 18+ tick, creates and
  *                         provisions the tenant, starts its server, and sets
  *                         the front door's login cookie
+ *   /account/stripe/webhook POST  Stripe's events (W2-8): no login, Stripe's
+ *                         signature is the check (billing/gateway-hook.ts)
+ *   /account/billing/...  billing actions (W2-8), behind the same login
+ *                         check as the tutor
  *   /account/...          the front door's own Next.js pages (no login needed)
  *   public pages    GET   How it works, Help, /legal/*, robots.txt and
  *                         sitemap.xml come from the front door's app, login
@@ -21,6 +25,7 @@
  * path is what Next.js or the tenant receives.
  */
 import type { IncomingMessage, OutgoingHttpHeaders, ServerResponse } from "node:http";
+import type { BillingGatewayHook } from "../billing/gateway-hook.ts";
 import { isAlwaysPublicPath, LANDING_PATH } from "../marketing/public-paths.ts";
 import type { AccountStore } from "../tenants/accounts.ts";
 import type { ClerkGateway } from "./auth.ts";
@@ -55,6 +60,8 @@ export interface GatewayDeps {
 	now?: () => number;
 	/** Never given session text or email addresses (cross-cutting req 3). */
 	log?: (message: string) => void;
+	/** W2-8: Stripe's webhook, the /account/billing routes, and the trial gate (billing/gateway-hook.ts). */
+	billing?: BillingGatewayHook;
 }
 
 const MAX_FORM_BYTES = 4096;
@@ -222,6 +229,10 @@ export function createGateway(deps: GatewayDeps): (req: IncomingMessage, res: Se
 			setCookie.push(cookie(SESSION_COOKIE, await signSession(current, deps.sessionSecret, now()), SESSION_MAX_AGE_SECONDS));
 		}
 
+		// W2-8: the /account/billing routes, and the trial gate (plans screen, 402 on new turns).
+		const billingCtx = { tenantId: current.tenantId, userId: current.userId, pathname, target, origin: `${proto(req)}://${host(req)}`, setCookie };
+		if (deps.billing && (await deps.billing.handle(req, res, billingCtx))) return;
+
 		let port: number;
 		try {
 			port = await deps.supervisor.ensureRunning(current.tenantId);
@@ -242,6 +253,10 @@ export function createGateway(deps: GatewayDeps): (req: IncomingMessage, res: Se
 		const url = new URL(`http://front.door${raw}`);
 		const pathname = url.pathname;
 		const target = `${pathname}${url.search}`;
+
+		// W2-8: Stripe's webhook needs no login (its signature is checked); the billing routes need the tutor's login.
+		if (deps.billing && pathname === deps.billing.webhookPath && req.method === "POST") return deps.billing.webhook(req, res);
+		if (deps.billing?.owns(pathname)) return handleTenantRequest(req, res, pathname, target);
 
 		if (pathname === FRONT_DOOR_PREFIX || pathname.startsWith(`${FRONT_DOOR_PREFIX}/`)) {
 			req.url = target;
