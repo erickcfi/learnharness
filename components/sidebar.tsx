@@ -6,7 +6,8 @@ import { usePathname, useRouter } from "next/navigation";
 import { MenuShell } from "@/components/menu-shell";
 import { DeleteSessionDialog } from "@/components/delete-session-dialog";
 import type { ChatDeleteMode } from "@/src/core";
-import { DumbbellIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
+import { CodeIcon, DumbbellIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
+import { SOURCE_LINK_LABEL, sourceUrl } from "@/frontdoor/source-link/index.ts";
 import { ActivitySection } from "@/components/activity-dock";
 import { CoverageMenuBlock } from "@/components/extraction-coverage";
 import { LhMark } from "@/components/lh-mark";
@@ -280,6 +281,24 @@ function sessionMeta(chat: ChatListItem): string {
 	}
 	if (chat.busy) return "Working…";
 	return timeAgo(chat.updatedAt);
+}
+
+/** North Aero fork (AGPL source link, docs/upstream-changes.md): this
+ *  build's source code. next.config.ts sets LH_SOURCE_COMMIT at build time
+ *  from Railway's commit. Exported for render tests. */
+export function SourceCodeLink() {
+	return (
+		<a
+			href={sourceUrl(process.env.LH_SOURCE_COMMIT)}
+			target="_blank"
+			rel="noreferrer"
+			data-testid="source-code-link"
+			className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[10px] uppercase tracking-wider text-muted-foreground/70 transition-colors hover:bg-accent hover:text-foreground"
+		>
+			<CodeIcon className="size-3" />
+			{SOURCE_LINK_LABEL}
+		</a>
+	);
 }
 
 /**
@@ -863,6 +882,7 @@ function SessionsSidebar() {
 								Settings
 							</button>
 						</Hint>
+						<SourceCodeLink />
 					</div>
 				</div>
 

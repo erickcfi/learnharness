@@ -5,16 +5,16 @@ A paid, multi-user fork of LearnHarness that becomes the whole of ground.flynort
 | Item | Value |
 |---|---|
 | Owner | Erick Teeters, North Aero, Inc. |
-| Status | Decisions approved 2026-11-07. X1, X2, and X4 decided. X3, X5, and X6 open (section 5). |
+| Status | Decisions approved 2026-11-07. X1, X2, X4, and X6 decided. X3 and X5 open (section 5). The build runs in waves (section 8, D33). |
 | Upstream | `amosblomqvist/learnharness`, commit `713377f` (2026-11-04, v0.5.0 prep) |
 | Fork | `erickcfi/learnharness`, public, AGPL-3.0 |
 | Decision IDs | D, N: decided (Appendix A). X: open design decision. PD: proposed default. T: ticket. G: launch gate. K: known gap. |
 
 ## How to use this document
 
-1. Before you start any phase, read sections 1 to 5.
-2. Each phase in section 8 names its requirements and its done criterion.
-3. A phase is done only when its criterion is met and every upstream test is still green.
+1. Before you start any work package, read sections 1 to 5.
+2. Each wave in section 8 names its requirements and its done criterion. `docs/kanban.md` lists the packages in each wave.
+3. A package is done only when its criterion is met and every upstream test is still green.
 4. When this PRD does not settle a design or implementation choice, ask the Owner. Upstream's `AGENTS.md` sets the same rule (N10).
 
 ## 1. Goal
@@ -100,7 +100,7 @@ To route calls through it, change one upstream file, `src/agent/models.ts`, so t
 
 Option B (read upstream's four usage records) stays as a cross-check for the proxy's totals in tests.
 
-### X3. Backups (needed for Phase 1)
+### X3. Backups (needed for W2-7)
 
 Railway's docs say services with volumes support manual and automated backups (checked 2026-11-07). Use them unless the restore test fails. If it fails, use a nightly copy to private object storage. **Done when:** a restore of one tenant folder from backup works.
 
@@ -108,7 +108,7 @@ Railway's docs say services with volumes support manual and automated backups (c
 
 Study time is active time, as in PD1. A $10 model-cost backstop also ends trial use (PD2). The front door measures study time.
 
-### X5. Front door technology (needed for Phase 1)
+### X5. Front door technology (needed for W1-1)
 
 The front door serves login, plans, Buy now, the dashboard, and the pass-through to tenant servers, including server-sent event streams.
 
@@ -116,13 +116,19 @@ The front door serves login, plans, Buy now, the dashboard, and the pass-through
 
 **Spike:** pass a server-sent event stream from one tenant server through the front door without buffering. The Owner approves the choice.
 
-### X6. Staging protection (needed for Phase 0)
+### X6. Staging protection: DECIDED, our own proxy (Owner, 2026-11-07)
 
 Upstream has no login, so staging must not be open to the public before C1 lands.
 
-**Recommendation:** Railway's Basic Auth Proxy template (nginx). It sits in front of the LearnHarness service, and the LearnHarness service gets no public domain. Its page does not say whether it passes server-sent event streams, so test that first.
+**Decision (D31):** a small nginx password proxy of our own, in the private repo `erickcfi/ground-tutor-staging-proxy`. It sits in front of the LearnHarness service, which has no public domain, and forwards over Railway's private network.
 
-**Fallback:** a temporary HTTP basic-auth check in `proxy.ts`, switched on by an environment variable and removed when C1 lands.
+- It refuses to start without a password of 16 or more characters.
+- It removes the password header before forwarding, so the app never sees it.
+- Response buffering is off, so server-sent event streams pass as they happen.
+- The idle limit is 1 hour, so a quiet teaching turn is not cut off.
+- Retire it when C1 lands.
+
+**Why not Railway's Basic Auth Proxy template:** it is community code with no license, and its 60-second idle limit would cut teaching-turn streams, which send no keep-alive pings.
 
 ## 6. Fork changes
 
@@ -374,24 +380,21 @@ Decisions: D19, D21, D27, N7.
 | Search | Tavily |
 | DNS | At cutover, `ground.flynorthaero.com` points to Railway. The Netlify site stays live until then (D3). |
 
-## 8. Phases
+## 8. Waves
 
-Every phase is done only when all of these are true:
+The build runs in waves of work packages, with up to five agents working in parallel (D33). `docs/plan.md` sets the order, and `docs/kanban.md` lists the packages. A package is done only when all of these are true:
 
 - `npm test`, `npm run typecheck`, and `npm run lint` are green.
-- The phase's own acceptance tests are green.
+- The package's own acceptance tests are green.
 - The Owner has seen the result.
 
-| Phase | Work | Done when |
+| Wave | Work | Done when |
 |---|---|---|
 | 0 | Fork. Set up CI. Deploy upstream unchanged to staging, protected as in X6. Measure memory during a live model turn on Railway. (The X1 and X2 spikes are done.) | The fork is public and CI is green at `713377f`. Staging runs. Live-turn memory is recorded in `docs/decisions/`. |
-| 1 | X5 first, then C1 and C5, plus X3. Security comes first. | The C1 and C5 tests are green, and a backup restore works. |
-| 2 | C3 | The C3 tests are green. |
-| 3 | C7 | The C7 tests are green. |
-| 4 | C2, with study time as in X4 | The C2 tests are green in Stripe test mode. |
-| 5 | C4. Start with sample files until T1 is ready. | The C4 tests are green. |
-| 6 | C6 | The C6 tests are green. |
-| 7 | 3 testers use staging, with consents on file. Clear the launch gates. Switch DNS. | Every gate in section 9 passes. |
+| 1 | The front door, with X5 first. In parallel: the Supabase schema, file lockdown (C5) with the library read tests (C4), production safety (C3 requirements 8 and 9), metering (C3 requirements 4 and 7), and the reporting contract tests and print record. | Each package's tests are green, and the Owner has approved X5. |
+| 2 | Isolation tests (C1), route blocks and the model lock (C3 requirements 1 to 3), pause, retention, and backups (C3 requirements 5 and 6, C1 requirement 6, X3), C2 with study time as in X4, C7, C6 email reports, and the C4 upload page. Use sample library files until T1 is ready. | The C1, C2 (Stripe test mode), C3, C4, C5, C6, and C7 tests are green, and a backup restore works. |
+| Testers | 3 testers use staging, with consents on file. Security comes first: they start only after the front door, database, lockdown, metering, and isolation packages are merged. | The testers are studying on staging. |
+| 3 | Clear the launch gates. Switch DNS. | Every gate in section 9 passes. |
 
 ## 9. Launch gates
 
@@ -399,7 +402,7 @@ Every phase is done only when all of these are true:
   - At 20 study hours a month, the 2x rule (D7) needs $1.73 an hour or less.
   - The current data point: probe and plan cost $0.61 in about 10 minutes (Opus 5.5, high thinking). That is $3.66 an hour for that phase only.
   - T7 measures full study hours.
-- **G2. Legal.** The legal review (T5) is done. It covers:
+- **G2. Legal documents.** The terms, the privacy policy, and the AI notice (T5) are published. Claude drafts them and the Owner approves them, with no lawyer review (D32). They cover:
   - the terms, including the fair-use limit and one person per account
   - the privacy policy, including what North Aero can see (D19)
   - California auto-renewal rules, including the notice before an annual renewal
@@ -419,7 +422,7 @@ Every phase is done only when all of these are true:
 | T2 | NTSB reports | Erick, with Claude's help |
 | T3 | Aircraft set, POH data, and a license check on the POH data | Erick |
 | T4 | North Aero material | Erick |
-| T5 | Legal review | Erick and a lawyer |
+| T5 | Terms, privacy policy, and AI notice. No lawyer review (D32). | Claude drafts. Erick approves. |
 | T6 | Move the old ground school modules | Erick |
 | T7 | Cost test: Run A (high thinking, 1 hour) and Run B (medium thinking, 1 hour). Report each run's cost, length, and cache hit rate, plus the Cheap slot model and the Strong slot Cache setting. | Erick |
 | T8 | Minors: research a path for students under 18, such as accounts owned by a parent or guardian | Claude researches. Erick and a lawyer decide. |
@@ -481,6 +484,10 @@ Each decision is stated here once. The requirements cite these IDs.
 | D28 | No signups under 18 at launch. A checkbox confirms 18 or older. |
 | D29 | Every model call a tenant causes counts toward that tenant's usage, including background research. |
 | D30 | Tenant isolation: one LearnHarness server per tenant, behind our own front door (X1, option A). No idle stop at launch (PD4). |
+| D31 | Staging protection: our own nginx password proxy, in the private repo `erickcfi/ground-tutor-staging-proxy`, not Railway's template (X6, 2026-11-07). Retired when C1 lands. |
+| D32 | No lawyer review before launch. Claude drafts the terms, the privacy policy, and the AI notice. The Owner approves them (2026-11-08). |
+| D33 | The build runs in waves of work packages, with up to five agents in parallel, each on its own branch. The coordinating session pushes finished branches and opens pull requests. The Owner merges (2026-11-08). |
+| D34 | Prices are starting prices. The Owner sets them and changes them after real users have tested the service (2026-11-08). |
 | N1 | Email is sent from `reports@ground.flynorthaero.com` through Amazon SES. |
 | N2 | Students cannot change the model or the thinking level. |
 | N3 | Students cannot see or enter API keys. Provider settings are hidden. |
