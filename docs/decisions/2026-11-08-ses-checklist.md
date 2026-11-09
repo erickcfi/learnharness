@@ -156,6 +156,8 @@ Tell the build session (P6-03):
 
 Do not create AWS access keys yet. P6-03 will list the exact permission the sending code needs (send only, from this identity only). Keys then go into Railway environment variables only, never into the repo or chat.
 
+Update (W2-10, 2026-11-08): the permission, the Railway variable names, the suppression list setting and the remaining steps are in `docs/decisions/2026-11-08-email-reports.md`, "SES steps left for Erick".
+
 For P6-03, the facts the sending code needs:
 
 - From `reports@ground.flynorthaero.com`, Reply-To `info@flynorthaero.com`. A verified domain covers every address in it, so `reports@` needs no separate verification. SES requires verification only for the From, Source, Sender and Return-Path addresses, so the Reply-To address needs none.

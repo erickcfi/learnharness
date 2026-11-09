@@ -7,6 +7,8 @@
  *                         sign-up: records the 18+ tick, creates and
  *                         provisions the tenant, starts its server, and sets
  *                         the front door's login cookie
+ *   /account/reports, /account/unsubscribe  email report pages (W2-10,
+ *                         reports/pages.ts; settings check the login there)
  *   /account/...          the front door's own Next.js pages (no login needed)
  *   public pages    GET   How it works, Help, /legal/*, robots.txt and
  *                         sitemap.xml come from the front door's app, login
@@ -52,6 +54,8 @@ export interface GatewayDeps {
 	trustForwardedHeaders: boolean;
 	/** The front door's Next.js request handler, for /account pages. */
 	frontDoorApp(req: IncomingMessage, res: ServerResponse): unknown;
+	/** W2-10: /account/reports and /account/unsubscribe (reports/pages.ts). True when it answered. */
+	reportPages?(req: IncomingMessage, res: ServerResponse, url: URL): Promise<boolean>;
 	now?: () => number;
 	/** Never given session text or email addresses (cross-cutting req 3). */
 	log?: (message: string) => void;
@@ -248,6 +252,7 @@ export function createGateway(deps: GatewayDeps): (req: IncomingMessage, res: Se
 			if (pathname === FRONT_DOOR_PREFIX || pathname === `${FRONT_DOOR_PREFIX}/`) return redirect(res, 302, `${FRONT_DOOR_PREFIX}/sign-in`);
 			if (pathname === `${FRONT_DOOR_PREFIX}/age` && req.method === "POST") return handleAge(req, res);
 			if (pathname === `${FRONT_DOOR_PREFIX}/start` && (req.method === "GET" || req.method === "HEAD")) return handleStart(req, res, url);
+			if (deps.reportPages && (await deps.reportPages(req, res, url))) return;
 			// Set before Next.js starts the answer (Next.js custom-server guide).
 			if (pathname === `${FRONT_DOOR_PREFIX}/sign-out`) res.setHeader("Set-Cookie", [clear(SESSION_COOKIE), clear(AGE_COOKIE)]);
 			await deps.frontDoorApp(req, res);

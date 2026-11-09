@@ -271,7 +271,7 @@ export const HELP = {
 				"Pick the dates you want.",
 				"Choose Print, or email it to any address, such as your CFI's.",
 			],
-			note: "You can also turn on email reports, after each session or once a week.",
+			note: "You can also turn on email reports, after each session or once a week, at ground.flynorthaero.com/account/reports.",
 		},
 		{
 			id: "billing",
