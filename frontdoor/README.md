@@ -21,6 +21,7 @@ Decision and spike: `docs/decisions/2026-11-08-x5-front-door-spike.md`.
 | `metering/` | The meter: pass keys, the proxy, prices, and its stores (Supabase with the DB-outage rules, in-memory). |
 | `db/`, `supabase/` | The database module and its migrations. See `db/README.md`. |
 | `production-safety/`, `log-hygiene/`, `settings-template/`, `source-link/` | Lockdown pieces. |
+| `legal-notices/` | The AGPL's legal notices (copyright, no warranty, permission to share, the license) shown on every screen: public footer, account and admin pages, the tutor's sidebar "License" item, and `/legal/license` with the full text. |
 | `records/` | The printed study record. |
 | `pause/`, `retention/`, `backups/` | W2-7: alert and autopause, the pause and plan-ended screens, unpause, the export zip, the day-91 delete, nightly tenant copies and restore. See `pause/README.md`. |
 | `email/`, `reports/` | Email reports (W2-10): the SES sender and its fake, the session-end and weekly reports, the loop that sends them, `/account/reports` and `/account/unsubscribe`. Wording in `email/copy.ts`. See `docs/decisions/2026-11-08-email-reports.md`. |
