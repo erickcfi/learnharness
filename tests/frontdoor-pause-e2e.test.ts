@@ -157,7 +157,7 @@ describe("pause and data safety, end to end", () => {
 			assert.ok(html.includes("Your tutor is paused"), pathname);
 			assert.ok(html.includes(PAUSED_MESSAGE));
 			assert.ok(html.includes("info@flynorthaero.com"));
-			assert.ok(html.includes('href="/account/export"') && html.includes('href="/account/record"'));
+			assert.ok(html.includes('href="/account/export"') && html.includes('href="/account/record"') && html.includes('href="/account/read-sessions"'));
 			assert.ok(!html.includes("tutor page"));
 			assert.ok(!/clerk/i.test(html), "no Clerk script on the pause screen");
 		}
@@ -167,7 +167,21 @@ describe("pause and data safety, end to end", () => {
 		const read = await api(cookie, "/api/chats");
 		assert.equal(read.status, 200, "an open tab can still read its chats");
 
-		const zip = await fetch(`${frontDoor.url}/account/export?tz=America/Denver`, { headers: { Cookie: cookie } });
+		// "Read your sessions": tutor pages load again for reading; the next visit to "/" shows the screen again.
+		const button = await page(cookie, "/account/read-sessions");
+		assert.equal(button.status, 303);
+		assert.equal(button.headers.get("location"), "/");
+		const readCookies = button.headers.getSetCookie().map((c) => c.split(";")[0]).join("; ");
+		const reading = `${cookie}; ${readCookies}`;
+		const home = await page(reading, "/");
+		assert.equal(await home.text(), "ok", "the first load of / after the button is the tutor");
+		assert.match(home.headers.getSetCookie().join(" "), /fd_read_once=;/, "the one-time cookie is cleared");
+		const readOnly = reading.replace(/; fd_read_once=[^;]*/, "");
+		assert.ok((await (await page(readOnly, "/chat/chat_a1")).text()).includes("tutor page"), "tutor pages load for reading");
+		assert.equal((await turn(readOnly)).status, 403, "but a new turn is still refused by the meter");
+		assert.ok((await (await page(readOnly, "/")).text()).includes("Your tutor is paused"), "the next visit to / shows the screen again");
+
+		const zip = await fetch(`${frontDoor.url}/account/export`, { headers: { Cookie: cookie } });
 		assert.equal(zip.status, 200);
 		assert.equal(zip.headers.get("content-type"), "application/zip");
 		assert.match(zip.headers.get("content-disposition") ?? "", /attachment; filename="ground-tutor-data-\d{4}-\d{2}-\d{2}\.zip"/);

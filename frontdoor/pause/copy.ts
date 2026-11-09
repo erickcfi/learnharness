@@ -15,12 +15,19 @@ export const PAUSED_MESSAGE = "Your account is paused for a fair-use review. Con
 
 export const BRAND_LINES = ["NORTH AERO", "GROUND TUTOR"] as const;
 
+/**
+ * The school's time zone for every date on the study record and screens
+ * (master decision, 2026-11-08, shared with reports). w2-email exports the
+ * same constant; the master points this at it when the branches merge.
+ */
+export const SCHOOL_TIME_ZONE = "America/Los_Angeles";
+
 export const PAUSE_SCREEN = {
 	pageTitle: "Your tutor is paused",
 	heading: "Your tutor is paused",
 	message: PAUSED_MESSAGE,
 	contact: `Email ${CONTACT_EMAIL} and we will sort it out.`,
-	safe: "Your sessions and records are safe. You can still download a copy of your data and print your study record.",
+	safe: "Your sessions and records are safe. You can still read your sessions, download a copy of your data and print your study record. The tutor cannot start new work while your account is paused.",
 };
 
 export const RETENTION_SCREEN = {
@@ -33,10 +40,17 @@ export const RETENTION_SCREEN = {
 };
 
 export const ACTIONS = {
+	read: "Read your sessions",
 	download: "Download your data",
 	print: "Print your study record",
 	signOut: "Sign out",
 };
+
+/**
+ * W2-8's spot: buttons shown first on the plan-ended screen, for example
+ * { label: "Subscribe again", href: "<the plans page>" }. Empty until then.
+ */
+export const RETENTION_EXTRA_ACTIONS: ReadonlyArray<{ label: string; href: string }> = [];
 
 /** README.txt at the top of the data export (P1-08). */
 export const EXPORT_README = {

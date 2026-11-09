@@ -4,3 +4,5 @@
  */
 export { costTowardLimits, createCostWatch, lastUnpause, WINDOW_DAYS, type AlertEvent, type AlertListener, type CheckResult, type CostTowardLimits, type CostWatch } from "./limits.ts";
 export { createPauseControls, type PauseControls } from "./controls.ts";
+export { interstitialDecision, interstitialPage, isPageLoad, READ_PATH, readRedirect, type ScreenAction, type ScreenContent } from "./interstitial.ts";
+export { DEFAULT_STUDENT_NAME, standInStudentName, type StudentNameLookup } from "./student-name.ts";

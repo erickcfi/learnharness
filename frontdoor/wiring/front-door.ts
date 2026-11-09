@@ -112,8 +112,17 @@ export async function startFrontDoor(options: FrontDoorOptions): Promise<FrontDo
 		? createSupabaseMeteringStore(db, { log, pendingFile: pendingUsageFile(config.volumeDir) })
 		: { ...createMemoryMeteringStore(), flush: async () => {}, close: async () => {}, pending: () => 0 };
 	if (!db) log("no database: accounts and usage are kept in memory until the front door stops");
+	const clerk = options.clerk ?? createClerkGateway(config.clerk);
 	// W2-7 (pause/data-safety.ts): alert and autopause after each call, retention refusal, screens, export, jobs. Needs the database.
-	const safety = db ? createDataSafety({ db, volumeDir: config.volumeDir, log }) : undefined;
+	const safety = db
+		? createDataSafety({
+				db,
+				volumeDir: config.volumeDir,
+				log,
+				secureCookies: config.secureCookies,
+				...(clerk.deleteUser ? { deleteLogin: (id: string) => clerk.deleteUser!(id) } : {}),
+			})
+		: undefined;
 
 	// Lockdown: the shared library is the only folder a tenant's file tools may read.
 	const library = libraryDir(config.volumeDir);
@@ -150,7 +159,7 @@ export async function startFrontDoor(options: FrontDoorOptions): Promise<FrontDo
 
 	const gateway = createGateway({
 		accounts,
-		clerk: options.clerk ?? createClerkGateway(config.clerk),
+		clerk,
 		supervisor,
 		provision: async (tenantId) => {
 			provisionTenant({ volumeDir: config.volumeDir, tenantId, fileAccess: libraryOnly });

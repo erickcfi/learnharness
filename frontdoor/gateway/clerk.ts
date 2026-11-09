@@ -52,5 +52,14 @@ export function createClerkGateway(settings: ClerkSettings): ClerkGateway {
 				throw error;
 			}
 		},
+		async deleteUser(userId: string): Promise<void> {
+			try {
+				await client.users.deleteUser(userId);
+			} catch (error) {
+				// Already gone: done. Any other error is passed up, and the day-91 job tries again.
+				if ((error as { status?: number }).status === 404) return;
+				throw error;
+			}
+		},
 	};
 }

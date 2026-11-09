@@ -101,6 +101,7 @@ It sets `NODE_ENV=production` and runs `server.ts` with `tsx`.
 | `<volume>/metering/` | `pending-usage.jsonl` and `rejected-usage.jsonl`, only after a database outage. |
 | `<volume>/backups/nightly/<date>/` | Nightly copy of each tenant folder, with a manifest, newest 7 nights (W2-7). Restore: `docs/decisions/2026-11-08-backups.md`. |
 | `<volume>/restore-kept/` | A folder a live restore replaced, kept until a person removes it. |
+| `<volume>/retention/pending-login-deletes.json` | Clerk users of deleted tenants still to delete, only while Clerk could not be reached on day 91 (owner-only). |
 
 **Variables:**
 
@@ -113,6 +114,7 @@ It sets `NODE_ENV=production` and runs `server.ts` with `tsx`.
 | `ANTHROPIC_API_KEY` | The real Anthropic key. Only the meter uses it. | Yes | Yes |
 | `TAVILY_API_KEY` | The real Tavily key. Only the meter uses it. | Yes | Yes |
 | `SUPABASE_DB_URL` | The Supabase session pooler connection string (IPv4, port 5432), from Supabase's Connect panel. It holds the database password. TLS is required unless the string sets `sslmode`. | Yes | Yes |
+| `LH_TRIAL_HASH_KEY` | Scrambles each trial email (a one-way keyed hash) in `trial_claims`, so one email gets one trial even after day 91. 32+ random characters (for example `openssl rand -base64 48`). **Never change it** once students have signed up; keep a copy outside Railway. | Yes | Yes |
 | `FRONTDOOR_AUTHORIZED_PARTIES` | The site's origins, comma-separated, for example `https://ground.flynorthaero.com` and the staging address. Clerk logins are accepted only from these. | No | Recommended |
 | `CLERK_JWT_KEY` | Clerk's PEM public key: checks logins without a call to Clerk. | No (public) | No |
 | `FRONTDOOR_VOLUME` | The volume's mount path. Default `/data`. | No | Only if not `/data` |

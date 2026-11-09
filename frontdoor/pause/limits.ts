@@ -8,8 +8,10 @@
  *  - at or above the autopause threshold: the tenant is paused (a pauses
  *    row, reason autopause) with an autopause alert. The meter refuses a
  *    paused tenant's calls on its next pause check.
- * Each newly opened alert is passed to onAlert once (for an email to the
- * Owner, if one is ever wired; PRD D15 says alerts show on the dashboard).
+ * Alerts live in the alerts table only, for w2-dashboard to show (PRD D15:
+ * alerts show on the dashboard only; there is no alert email). Each newly
+ * opened alert is also passed to onAlert once; data-safety.ts uses that to
+ * show an autopause on the screens at once.
  *
  * The count (the unpause hold, master decision 2026-11-08): model cost in
  * the last 30 days, but never from before the tenant's latest unpause. So

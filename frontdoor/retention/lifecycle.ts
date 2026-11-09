@@ -13,17 +13,20 @@
  * same end time changes nothing (a repeated Stripe event).
  *
  * runDay91 deletes every tenant whose 90 days are over. For each one, in
- * this order, so a failure part way is finished by the next run:
- *  1. stop its tutor server;
- *  2. delete its folder (<volume>/tenants/<id>), its key file
- *     (<volume>/auth/<id>.json) and its nightly copies
+ * this order (master decision, 2026-11-08), each step tried again on the
+ * next run if it fails:
+ *  1. stop its tutor server, then delete its folder (<volume>/tenants/<id>),
+ *     its key file (<volume>/auth/<id>.json) and its nightly copies
  *     (<volume>/backups/nightly/<night>/<id> and <id>.manifest.json);
- *  3. delete its login at Clerk, if deleteLogin is given (Clerk holds the
- *     email address);
- *  4. delete its account row, which removes every tenant row through the
- *     foreign keys;
- *  5. stop its server and delete the folder again, in case a request
- *     started the server between steps 2 and 4.
+ *  2. delete its account row, which removes every tenant row through the
+ *     foreign keys. Just before, the Clerk user id goes on a pending list
+ *     on the volume (<volume>/retention/pending-login-deletes.json), so
+ *     step 3 is not lost when the row is gone;
+ *  3. stop its server and delete its files again (a request may have
+ *     started the server between steps 1 and 2), then delete its user at
+ *     Clerk, if deleteLogin is given (Clerk holds the email address). A
+ *     failed Clerk delete stays on the pending list, and every run starts
+ *     by trying the list again.
  * What is left: trial_claims (a keyed hash of the email and Stripe's card
  * fingerprint, written when the trial started, with no tenant link) and
  * stripe_events (Stripe event ids only). Stripe keeps its own records.
@@ -65,6 +68,38 @@ export interface Day91Result {
 	failed: number;
 	/** Ids of the tenants deleted by this run. */
 	deletedIds: string[];
+	/** Clerk users still to delete after this run (a Clerk delete failed). */
+	loginsPending: number;
+}
+
+/** Clerk users whose tenant is deleted but whose Clerk delete has not succeeded yet. */
+export const pendingLoginFile = (volumeDir: string) => path.join(path.resolve(volumeDir), "retention", "pending-login-deletes.json");
+
+interface PendingLogin {
+	clerkUserId: string;
+	/** For the log only. */
+	tenantId: string;
+}
+
+function readPending(file: string): PendingLogin[] {
+	try {
+		const parsed = JSON.parse(fs.readFileSync(file, "utf8")) as unknown;
+		return Array.isArray(parsed) ? parsed.filter((p): p is PendingLogin => typeof p?.clerkUserId === "string" && typeof p?.tenantId === "string") : [];
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+		throw error;
+	}
+}
+
+function writePending(file: string, pending: readonly PendingLogin[]): void {
+	if (pending.length === 0) {
+		fs.rmSync(file, { force: true });
+		return;
+	}
+	fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+	const temp = `${file}.${process.pid}.tmp`;
+	fs.writeFileSync(temp, `${JSON.stringify(pending)}\n`, { mode: 0o600 });
+	fs.renameSync(temp, file);
 }
 
 export interface Retention {
@@ -109,23 +144,49 @@ export function createRetention(options: RetentionOptions): Retention {
 	const log = options.log ?? ((line: string) => console.log(line));
 	let running: Promise<Day91Result> | null = null;
 
+	const pendingFile = pendingLoginFile(volumeDir);
+
+	/** Tries each pending Clerk delete once. Returns how many are still pending. */
+	async function deletePendingLogins(): Promise<number> {
+		if (!options.deleteLogin) return 0;
+		const left: PendingLogin[] = [];
+		for (const p of readPending(pendingFile)) {
+			try {
+				await options.deleteLogin(p.clerkUserId);
+				log(`day-91: deleted the Clerk user of tenant ${p.tenantId}`);
+			} catch (error) {
+				left.push(p);
+				log(`day-91: the Clerk user of tenant ${p.tenantId} could not be deleted (${errorCode(error)}); the next run tries again`);
+			}
+		}
+		writePending(pendingFile, left);
+		return left.length;
+	}
+
 	async function deleteOne(tenant: Tenant): Promise<void> {
+		// 1. The server, then the files.
 		await options.stopTenant?.(tenant.id);
 		const files = removeTenantFiles(volumeDir, tenant.id);
+		// 2. The database rows. The Clerk user id goes on the pending list first, so step 3 survives a crash.
 		const login = await one(db, "select a.clerk_user_id from accounts a join tenants t on t.account_id = a.id where t.id = $1", [tenant.id]);
-		if (options.deleteLogin && login?.clerk_user_id) await options.deleteLogin(String(login.clerk_user_id));
+		if (options.deleteLogin && login?.clerk_user_id) {
+			const pending = readPending(pendingFile).filter((p) => p.tenantId !== tenant.id);
+			writePending(pendingFile, [...pending, { clerkUserId: String(login.clerk_user_id), tenantId: tenant.id }]);
+		}
 		await deleteTenantAndAccount(db, tenant.id);
-		// A request may have started its server again before the rows went: stop it, and remove what it wrote.
+		// 3. A request may have started its server again before the rows went: stop it, and remove what it wrote.
 		await options.stopTenant?.(tenant.id);
 		removeTenantFiles(volumeDir, tenant.id);
 		log(
-			`day-91: deleted tenant ${tenant.id} (folder ${files.folder ? "yes" : "already gone"}, key file ${files.keyFile ? "yes" : "already gone"}, ${files.nightlyCopies} nightly copies, login ${options.deleteLogin ? "deleted" : "kept"}, database rows)`,
+			`day-91: deleted tenant ${tenant.id} (folder ${files.folder ? "yes" : "already gone"}, key file ${files.keyFile ? "yes" : "already gone"}, ${files.nightlyCopies} nightly copies, database rows)`,
 		);
 	}
 
 	async function run(): Promise<Day91Result> {
+		// Clerk users left over from an earlier run first.
+		await deletePendingLogins();
 		const due = await listTenantsDueForDeletion(db, now());
-		const result: Day91Result = { due: due.length, deleted: 0, failed: 0, deletedIds: [] };
+		const result: Day91Result = { due: due.length, deleted: 0, failed: 0, deletedIds: [], loginsPending: 0 };
 		for (const tenant of due) {
 			try {
 				await deleteOne(tenant);
@@ -136,7 +197,11 @@ export function createRetention(options: RetentionOptions): Retention {
 				log(`day-91: tenant ${tenant.id} could not be deleted (${errorCode(error)}); the next run tries again`);
 			}
 		}
-		if (due.length > 0) log(`day-91: ${due.length} due, ${result.deleted} deleted, ${result.failed} failed`);
+		// Then the Clerk users of the tenants just deleted.
+		result.loginsPending = await deletePendingLogins();
+		if (due.length > 0 || result.loginsPending > 0) {
+			log(`day-91: ${due.length} due, ${result.deleted} deleted, ${result.failed} failed, ${result.loginsPending} Clerk users still to delete`);
+		}
 		return result;
 	}
 

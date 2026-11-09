@@ -3,6 +3,10 @@
  */
 
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { describe, it } from "node:test";
 import { RECORD_LABEL } from "../frontdoor/records/index.ts";
 import { buildExport, buildRecordHtml, slugify } from "../frontdoor/retention/export.ts";
@@ -78,6 +82,26 @@ describe("the export (C1 req 6)", () => {
 		assert.ok(readme.includes("info@flynorthaero.com"));
 		assert.ok(!readme.includes("could not be included"));
 		assert.ok(seen.every((p) => p.startsWith("/api/")), "only upstream API reads");
+	});
+
+	it("opens with a real unzip, every file checked", { skip: spawnSync("unzip", ["-v"]).status !== 0 ? "unzip is not installed" : false }, async () => {
+		const { fetchTenant } = fakeTenantFetch(fakeUpstreamAnswers());
+		const result = await buildExport(inputs(fetchTenant));
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fd-export-unzip-"));
+		try {
+			const file = path.join(dir, result.fileName);
+			fs.writeFileSync(file, result.body);
+			const test = spawnSync("unzip", ["-t", file], { encoding: "utf8" });
+			assert.equal(test.status, 0, test.stdout + test.stderr);
+			assert.match(test.stdout, /No errors detected/);
+			const out = path.join(dir, "out");
+			const extract = spawnSync("unzip", ["-q", file, "-d", out], { encoding: "utf8" });
+			assert.equal(extract.status, 0, extract.stderr);
+			assert.ok(fs.readFileSync(path.join(out, "study-record.html"), "utf8").includes(RECORD_LABEL));
+			assert.equal(fs.readdirSync(path.join(out, "sessions")).length, 2);
+		} finally {
+			fs.rmSync(dir, { recursive: true, force: true });
+		}
 	});
 
 	it("leaves out a part that fails and names it in README.txt", async () => {

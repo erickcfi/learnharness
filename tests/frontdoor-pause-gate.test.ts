@@ -12,7 +12,8 @@ import type { Db } from "../frontdoor/db/index.ts";
 import { createMemoryMeteringStore } from "../frontdoor/metering/store.ts";
 import { AccessUnavailableError, createAccessReader, type AccessReader, type TenantAccess } from "../frontdoor/pause/access.ts";
 import { API_MESSAGES } from "../frontdoor/pause/copy.ts";
-import { createTenantGate, isPageLoad, safeTimeZone, type TenantData } from "../frontdoor/pause/gate.ts";
+import { createTenantGate, isPageLoad, type TenantData } from "../frontdoor/pause/gate.ts";
+import { interstitialDecision, READ_COOKIE, readRedirect } from "../frontdoor/pause/interstitial.ts";
 import { withPauseRules } from "../frontdoor/pause/meter.ts";
 import { pauseScreenHtml, retentionScreenHtml } from "../frontdoor/pause/screens.ts";
 
@@ -31,11 +32,29 @@ describe("what counts as a page load", () => {
 		assert.equal(isPageLoad(fakeReq("GET", { accept: "image/avif,image/webp" }), "/icon.png"), false);
 	});
 
-	it("time zones: a known IANA name, else UTC", () => {
-		assert.equal(safeTimeZone("America/Los_Angeles"), "America/Los_Angeles");
-		assert.equal(safeTimeZone("Mars/Olympus"), "UTC");
-		assert.equal(safeTimeZone(null), "UTC");
-		assert.equal(safeTimeZone("x".repeat(100)), "UTC");
+});
+
+describe("the interstitial's Read your sessions way through (C3 req 6)", () => {
+	const PAGE = { "sec-fetch-dest": "document", accept: "text/html" };
+	it("shows the screen without the read cookie, and passes tutor pages with it", () => {
+		assert.deepEqual(interstitialDecision(fakeReq("GET", PAGE), "/chat/a", "paused", false), { show: true });
+		const withCookie = { ...PAGE, cookie: `${READ_COOKIE}=paused` };
+		assert.deepEqual(interstitialDecision(fakeReq("GET", withCookie), "/chat/a", "paused", false), { show: false, setCookie: [] });
+		assert.deepEqual(interstitialDecision(fakeReq("GET", { cookie: `${READ_COOKIE}=paused`, rsc: "1" }), "/", "paused", false), { show: false, setCookie: [] }, "a click inside the tutor passes");
+		assert.deepEqual(interstitialDecision(fakeReq("GET", { ...PAGE, cookie: `${READ_COOKIE}=trial` }), "/chat/a", "paused", false), { show: true }, "a cookie for another screen does not count");
+		assert.deepEqual(interstitialDecision(fakeReq("POST", PAGE), "/chat/a", "paused", false), { show: false, setCookie: [] }, "only page loads are screened");
+	});
+
+	it("the next full visit to / shows the screen again; the first one right after the button passes once", () => {
+		const r = readRedirect("paused", true);
+		assert.equal(r.location, "/");
+		assert.ok(r.setCookie.every((c) => c.includes("HttpOnly") && c.includes("SameSite=Lax") && c.includes("Secure")));
+		const both = r.setCookie.map((c) => c.split(";")[0]).join("; ");
+		const first = interstitialDecision(fakeReq("GET", { ...PAGE, cookie: both }), "/", "paused", true);
+		assert.equal(first.show, false);
+		assert.ok(!first.show && first.setCookie.length === 1 && /fd_read_once=; .*Max-Age=0/.test(first.setCookie[0]!), "the one-time cookie is cleared");
+		const later = interstitialDecision(fakeReq("GET", { ...PAGE, cookie: `${READ_COOKIE}=paused` }), "/", "paused", true);
+		assert.deepEqual(later, { show: true });
 	});
 });
 
@@ -123,14 +142,15 @@ describe("the gate", () => {
 				});
 		});
 		await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
-		const res = await fetch(`http://127.0.0.1:${(server.address() as AddressInfo).port}${pathname}`, { method, headers });
+		const res = await fetch(`http://127.0.0.1:${(server.address() as AddressInfo).port}${pathname}`, { method, headers, redirect: "manual" });
 		const body = await res.text();
 		await new Promise<void>((r) => server.close(() => r()));
 		return { status: res.status, body, handled, signedOut, type: res.headers.get("content-type") };
 	}
 
 	const PAGE = { "sec-fetch-dest": "document", accept: "text/html" };
-	const RETENTION: TenantAccess = { state: "retention", retentionEndsAt: new Date("2027-02-06T00:00:00Z"), expired: false };
+	// 20:00 UTC is midday in the school's time zone (America/Los_Angeles), so the date reads February 6.
+	const RETENTION: TenantAccess = { state: "retention", retentionEndsAt: new Date("2027-02-06T20:00:00Z"), expired: false };
 
 	it("open: everything passes; paused: page loads get the screen, API calls and files pass", async () => {
 		assert.equal((await ask({ state: "open" }, "GET", "/", PAGE)).status, 299);
@@ -138,6 +158,11 @@ describe("the gate", () => {
 		const screen = await ask(paused, "GET", "/chat/a", PAGE);
 		assert.equal(screen.status, 200);
 		assert.ok(screen.body.includes("Your tutor is paused"));
+		assert.ok(screen.body.includes('href="/account/read-sessions"'));
+		const read = await ask(paused, "GET", "/account/read-sessions", PAGE);
+		assert.equal(read.status, 303, "Read your sessions sets the cookie and goes to /");
+		assert.equal((await ask(paused, "GET", "/chat/a", { ...PAGE, cookie: "fd_read=paused" })).status, 299, "then tutor pages load for reading");
+		assert.equal((await ask({ state: "open" }, "GET", "/account/read-sessions", PAGE)).status, 303, "not paused: just back to /");
 		assert.equal((await ask(paused, "POST", "/api/chats/a/stream")).status, 299, "the meter refuses the model call, not the gate");
 		assert.equal((await ask(paused, "GET", "/_next/static/a.js")).status, 299);
 	});
@@ -219,6 +244,7 @@ describe("the screens", () => {
 		for (const html of [pauseScreenHtml(), retentionScreenHtml(new Date("2027-01-01T00:00:00Z"), false), retentionScreenHtml(new Date(), true)]) {
 			assert.ok(!/\b(src|href)="https?:/i.test(html), "no outside resources");
 			assert.ok(!/clerk/i.test(html));
+			assert.ok(!html.includes("<script"), "no script");
 			assert.ok(html.includes('name="robots" content="noindex"'));
 			assert.ok(!html.includes("—"), "no em dashes");
 		}

@@ -106,7 +106,7 @@ describe("retention and the day-91 delete (C1 req 6, D25)", () => {
 
 		// Day 89: everything is still there, and the student may export.
 		clock = new Date(ENDED.getTime() + 89 * DAY);
-		assert.deepEqual(await retention.runDay91(), { due: 0, deleted: 0, failed: 0, deletedIds: [] });
+		assert.deepEqual(await retention.runDay91(), { due: 0, deleted: 0, failed: 0, deletedIds: [], loginsPending: 0 });
 		assert.ok(fs.existsSync(path.join(s.dir, "chats", "chat_1.json")));
 		assert.ok(Object.values(await rowsFor(s.tenant.id)).every((count) => count === 1), JSON.stringify(await rowsFor(s.tenant.id)));
 		const day89 = await readTenantAccess(t.db, s.tenant.id, clock);
@@ -116,7 +116,7 @@ describe("retention and the day-91 delete (C1 req 6, D25)", () => {
 		clock = new Date(ENDED.getTime() + 91 * DAY);
 		assert.equal((await readTenantAccess(t.db, s.tenant.id, clock)).state, "retention", "before the job runs it reads as an expired retention");
 		const result = await retention.runDay91();
-		assert.deepEqual(result, { due: 1, deleted: 1, failed: 0, deletedIds: [s.tenant.id] });
+		assert.deepEqual(result, { due: 1, deleted: 1, failed: 0, deletedIds: [s.tenant.id], loginsPending: 0 });
 		assert.deepEqual(stopped, [s.tenant.id, s.tenant.id], "its server is stopped first, and again after the rows are gone");
 		assert.equal(fs.existsSync(s.dir), false, "tenant folder deleted");
 		assert.equal(fs.existsSync(tenantAuthFile(volume, s.tenant.id)), false, "key file deleted");
@@ -139,7 +139,7 @@ describe("retention and the day-91 delete (C1 req 6, D25)", () => {
 		assert.ok(Object.values(await rowsFor(other.tenant.id)).every((count) => count === 1));
 
 		// Safe to re-run.
-		assert.deepEqual(await retention.runDay91(), { due: 0, deleted: 0, failed: 0, deletedIds: [] });
+		assert.deepEqual(await retention.runDay91(), { due: 0, deleted: 0, failed: 0, deletedIds: [], loginsPending: 0 });
 
 		// Logs: ids and counts only.
 		assert.ok(logs.some((l) => l.includes(s.tenant.id) && l.startsWith("day-91: deleted tenant")));
@@ -148,36 +148,42 @@ describe("retention and the day-91 delete (C1 req 6, D25)", () => {
 		}
 	});
 
-	it("a delete that fails part way is finished by the next run (folder first, rows last)", async () => {
+	it("deletes in the order folder, rows, Clerk user; a failed Clerk delete is tried again by the next run", async () => {
 		const volume = path.join(work, "v2");
 		const s = await fullStudent(volume);
 		const clock = new Date(ENDED.getTime() + 91 * DAY);
 		let clerkUp = false;
-		const deletedLogins: string[] = [];
+		const order: string[] = [];
 		const logs: string[] = [];
 		const retention = createRetention({
 			db: t.db,
 			volumeDir: volume,
 			now: () => clock,
+			stopTenant: async () => void order.push(fs.existsSync(s.dir) ? "stop (folder there)" : "stop (folder gone)"),
 			deleteLogin: async (clerkUserId) => {
+				order.push((await dbm.getTenant(t.db, s.tenant.id)) ? "clerk (rows there)" : "clerk (rows gone)");
 				if (!clerkUp) throw Object.assign(new Error("clerk down"), { code: "ECONNREFUSED" });
-				deletedLogins.push(clerkUserId);
+				order.push(`clerk deleted ${clerkUserId === s.clerkUserId}`);
 			},
 			log: (l) => logs.push(l),
 		});
 		await retention.startRetention(s.tenant.id, ENDED);
 
 		const first = await retention.runDay91();
-		assert.deepEqual({ ...first, deletedIds: [] }, { due: 1, deleted: 0, failed: 1, deletedIds: [] });
-		assert.equal(fs.existsSync(s.dir), false, "the folder went first");
-		assert.notEqual(await dbm.getTenant(t.db, s.tenant.id), null, "the rows stay, so the next run finds the tenant");
+		assert.deepEqual(first, { due: 1, deleted: 1, failed: 0, deletedIds: [s.tenant.id], loginsPending: 1 });
+		assert.deepEqual(order, ["stop (folder there)", "stop (folder gone)", "clerk (rows gone)"], "folder, then rows, then the Clerk user");
+		assert.equal(fs.existsSync(s.dir), false);
+		assert.equal(await dbm.getTenant(t.db, s.tenant.id), null, "the rows are gone even though Clerk was down");
+		const pendingFile = path.join(volume, "retention", "pending-login-deletes.json");
+		assert.equal(fs.statSync(pendingFile).mode & 0o777, 0o600, "the pending list is owner-only");
 		assert.ok(logs.some((l) => l.includes(s.tenant.id) && l.includes("ECONNREFUSED")));
+		assert.ok(logs.every((l) => !l.includes(s.clerkUserId)), "the log names the tenant, not the Clerk user");
 
 		clerkUp = true;
 		const second = await retention.runDay91();
-		assert.equal(second.deleted, 1);
-		assert.deepEqual(deletedLogins, [s.clerkUserId], "the Clerk login is deleted (when deleteLogin is wired)");
-		assert.equal(await dbm.getTenant(t.db, s.tenant.id), null);
+		assert.deepEqual(second, { due: 0, deleted: 0, failed: 0, deletedIds: [], loginsPending: 0 });
+		assert.equal(order.at(-1), "clerk deleted true", "the next run deletes the Clerk user");
+		assert.equal(fs.existsSync(pendingFile), false, "the pending list is gone once empty");
 	});
 
 	it("endRetention puts a returning student back in service; a ready tenant is left as it is", async () => {

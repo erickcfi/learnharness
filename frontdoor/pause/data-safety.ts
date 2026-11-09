@@ -12,7 +12,7 @@
  * For other packages:
  *  - safety.controls.pauseTenant / unpauseTenant: w2-dashboard's buttons.
  *  - safety.retention().startRetention / endRetention: W2-8, from Stripe.
- *  - onAlert: called once per newly opened alert (w2-email, if wired).
+ * Alerts go to the alerts table only, for the dashboard (PRD D15: no alert email).
  */
 import { type Db, listStudyStretches } from "../db/index.ts";
 import { copyTenantsNightly, NIGHTLY_KEEP, NIGHTLY_UTC_HOUR } from "../backups/nightly.ts";
@@ -22,19 +22,22 @@ import { type JobScheduler, startJobs } from "../retention/schedule.ts";
 import { type AccessReader, createAccessReader } from "./access.ts";
 import { createPauseControls, type PauseControls } from "./controls.ts";
 import { createTenantGate, type TenantGate } from "./gate.ts";
-import { type AlertListener, createCostWatch, type CostWatch } from "./limits.ts";
+import { SCHOOL_TIME_ZONE } from "./copy.ts";
+import { createCostWatch, type CostWatch } from "./limits.ts";
 import { withPauseRules } from "./meter.ts";
+import { DEFAULT_STUDENT_NAME, standInStudentName, type StudentNameLookup } from "./student-name.ts";
 import type { MeteringStore } from "../metering/store.ts";
 
 export interface DataSafetyOptions {
 	db: Db;
 	volumeDir: string;
 	log: (line: string) => void;
-	onAlert?: AlertListener;
-	/** The student's name for the study record, from the login. Default "Student". */
-	studentName?: (userId: string) => Promise<string | null>;
-	/** Deletes a student's login at Clerk on day 91. Not wired unless the master says so. */
+	/** The student's name for the study record. Default: the stand-in (student-name.ts), so "Student". */
+	studentName?: StudentNameLookup;
+	/** Deletes a student's Clerk user on day 91 (master decision, 2026-11-08). wiring passes Clerk's. */
 	deleteLogin?: (clerkUserId: string) => Promise<void>;
+	/** The read cookies get Secure, like the login cookie (wiring passes the config's value). */
+	secureCookies?: boolean;
 	/** Make nightly copies of each tenant folder (backups/nightly.ts). Default true. */
 	nightlyCopies?: boolean;
 	/** Tests: how long an access answer is reused. Default 5 s. */
@@ -81,7 +84,6 @@ export function createDataSafety(options: DataSafetyOptions): DataSafety {
 		onAlert: (event) => {
 			// An autopause shows on the screens at once, not after the access cache runs out.
 			if (event.kind === "autopause") access.forget(event.tenantId);
-			return options.onAlert?.(event);
 		},
 	});
 	const base = createPauseControls({ db, now });
@@ -115,20 +117,22 @@ export function createDataSafety(options: DataSafetyOptions): DataSafety {
 		attach(servers, attachOptions = {}) {
 			if (attached) return attached;
 			const fetchTenant = attachOptions.fetchTenant ?? supervisorFetch(servers);
-			const inputs = async (tenantId: string, userId: string, timeZone: string): Promise<RecordInputs> => ({
+			const lookupName = options.studentName ?? standInStudentName;
+			const inputs = async (tenantId: string, userId: string): Promise<RecordInputs> => ({
 				tenantId,
 				fetchTenant,
-				studentName: (await options.studentName?.(userId).catch(() => null)) || "Student",
-				timeZone,
+				studentName: (await lookupName(userId).catch(() => null)) || DEFAULT_STUDENT_NAME,
+				timeZone: SCHOOL_TIME_ZONE,
 				activeSecondsBySession: await activeSecondsBySession(tenantId),
 				now: now(),
 			});
 			const gate = createTenantGate({
 				access,
 				log,
+				secureCookies: options.secureCookies ?? false,
 				data: {
-					exportZip: async (tenantId, userId, timeZone) => buildExport(await inputs(tenantId, userId, timeZone)),
-					recordHtml: async (tenantId, userId, timeZone) => buildRecordHtml(await inputs(tenantId, userId, timeZone)),
+					exportZip: async (tenantId, userId) => buildExport(await inputs(tenantId, userId)),
+					recordHtml: async (tenantId, userId) => buildRecordHtml(await inputs(tenantId, userId)),
 				},
 			});
 			const lifecycle = createRetention({
