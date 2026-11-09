@@ -28,20 +28,20 @@ export interface TenantSupervisorOptions {
 	/** Where PATH and the locale come from. Defaults to process.env. Only
 	 *  PASSED_ENV_KEYS are copied from it. */
 	baseEnv?: Record<string, string | undefined>;
-	/** PLUG POINT for later packages: w1-metering's per-tenant pass key
-	 *  (in place of the real Anthropic and Tavily keys), w1-lockdown's
-	 *  library path. Compose several in server.ts. It cannot replace the
+	/** Variables added for each tenant. wiring/front-door.ts gives the
+	 *  library path (lockdown) and the metering pass key and address, in
+	 *  place of the real Anthropic and Tavily keys. It cannot replace the
 	 *  tenant's own folder, port, or host settings. */
 	extraEnv?: (tenantId: string) => Record<string, string>;
 	/** Defaults to the Node running the front door. */
 	nodeBinary?: string;
-	/** PLUG POINT for w1-lockdown: Node options placed before the server
-	 *  script, for example ["--import", "<log filter module>"]. */
+	/** Node options placed before the server script. wiring/front-door.ts
+	 *  gives ["--import", <lockdown's log filter>]. */
 	nodeArgs?: string[];
 	/** How long a server may take to answer its first request. Default 30 s. */
 	startTimeoutMs?: number;
-	/** The server's own log output. Default: dropped. Log hygiene (P1-10)
-	 *  decides what may reach the front door's logs. */
+	/** The server's own log output. Default: dropped. wiring/front-door.ts
+	 *  passes stderr only, filtered and capped (wiring/tenant-logs.ts). */
 	onOutput?: (tenantId: string, stream: "stdout" | "stderr", chunk: Buffer) => void;
 	onExit?: (tenantId: string, code: number | null, signal: NodeJS.Signals | null) => void;
 }

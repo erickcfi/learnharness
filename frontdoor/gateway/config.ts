@@ -14,6 +14,9 @@
  *   FRONTDOOR_LISTEN_HOST              default 0.0.0.0
  *   PORT                               default 3000
  *   FRONTDOOR_DEV=1                    run the front door's pages in Next.js dev mode
+ * The secrets for the meter and the database (FRONTDOOR_PASS_KEY_SECRET,
+ * ANTHROPIC_API_KEY, TAVILY_API_KEY, SUPABASE_DB_URL) are read in
+ * wiring/env.ts. The full list is in frontdoor/README.md, "Deploy on Railway".
  */
 import * as path from "node:path";
 import { sessionSecretFrom } from "./session.ts";

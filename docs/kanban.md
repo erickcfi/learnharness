@@ -80,21 +80,35 @@ These run alongside the build. Owner: Erick, unless stated.
   - `staging-proxy` service: `ORIGIN=http://learnharness.railway.internal:3000`, `PORT=8080`. Public address `https://staging-proxy-production-0fd9.up.railway.app`.
   - Left: Erick sets `BASIC_AUTH` (password of 16 or more characters). Until then the proxy refuses to start, and the address serves nothing. Then the 401, sign-in, and stream tests.
 
-### Wave 1 (started 2026-11-08)
+### W1-6. Wire-up (started 2026-11-08)
 
-Each package runs in its own agent session, in `~/lh-wt/<branch>`.
+- **Branch** `w1-wireup`, from `main` at `b974d60`.
+- **Work:** connect lockdown, metering and the database into the front door at the `WIRING POINT` comments in `frontdoor/server.ts`. The front door starts with `tsx`. A Supabase-backed account store and metering store, with the DB-outage rule (pause status remembered for 1 minute, refuse with nothing remembered, usage writes retried). Deploy notes in `frontdoor/README.md`.
+- **Done when:** an end-to-end test shows a first login provisioning a locked-down, metered tenant, a model call landing as a usage row, and a paused tenant refused. The front door builds and starts. The gate is green.
 
-- **W1-1. Front door** (branch `w1-front-door`). Cards P1-01, P1-02, P1-04, P1-07. PRD X5, C1. Erick: approve the X5 spike result, and create the Clerk application.
-- **W1-2. Database** (branch `w1-database`). Card P1-03, widened to every table the project needs, with row-level security. PRD C1 requirement 7, PD5. Erick: create the Supabase project.
-- **W1-3. Lockdown** (branch `w1-lockdown`). Cards P1-06, P5-02, P2-06, P1-10. PRD C4, C5, C3 requirements 8 and 9, cross-cutting requirements.
-- **W1-4. Metering** (branch `w1-metering`). Cards P2-01, P2-02. PRD C3 requirements 4 and 7, X2.
-- **W1-5. Reporting** (branch `w1-reporting`). Card P3-06 (contract tests), card P6-01 (record builder and print view), and the SES checklist for P6-02. PRD C6, C7 requirement 7. Erick: Amazon SES account and DNS records.
+### W2-11. Landing page and walkthrough (started 2026-11-08)
+
+- **Branch** `w2-landing`, from `main` at `b974d60`.
+- **Why:** Erick, 2026-11-08: students need a landing page and a brief animated walkthrough of how the tutor works, leading to sign-up.
+- **Work:** public pages in the front door: `/` (landing, for visitors not signed in), `/how-it-works` (animated tour of Measure, Plan, Teach, Practice and the study record), `/help` (getting started and FAQ), and placeholder legal pages. Prices come from one config value (D8, D34). CSS and SVG animations, reduced motion respected, mobile first, no trackers. Honest copy, kept in one file for Erick to review.
+- **Done when:** the pages render with no login, every `/api` route still returns 401 without one, the front door builds, the gate is green, and screenshots are in `previews/landing/` for Erick. Erick approves the copy before launch.
 
 ## Review
 
 (none)
 
 ## Done
+
+### Wave 1 (merged 2026-11-08)
+
+Each package ran in its own agent session, in `~/lh-wt/<branch>`. The master session checked each branch, reran the gate, and merged them in this order, fixing change-log conflicts by keeping both sides. `main` at `b974d60`: 3,791 tests, 3,786 pass, 0 fail, 5 skipped. The front door builds.
+
+- **W1-1. Front door** (PR #7). Cards P1-01, P1-02, P1-04, P1-07. Custom Node server around Next.js (X5, approved). Clerk login gate, one tenant server per student on 127.0.0.1 with an environment allowlist, 18+ box before sign-up, pages under `/account`, `frontdoor/` as an npm workspace. Real Clerk login waits for Erick's Clerk app.
+- **W1-2. Database** (PR #4). Card P1-03, widened: 17 tables and the `tenant_overview` view, row-level security with no allow rules, server-only access. Sign-in calls are safe to repeat. Supabase project `ground-tutor` created 2026-11-08 (empty until the tables are loaded).
+- **W1-3. Lockdown** (PR #6). Cards P1-06, P5-02, P2-06, P1-10. File tools locked to the library, library read-only, production start check, log filter, AGPL source link, 20 MB per-file import limit.
+- **W1-4. Metering** (PR #3). Cards P2-01, P2-02. Per-student pass keys, every Anthropic call and Tavily search metered per tenant, paused students refused.
+- **W1-5. Reporting** (PR #5). Card P3-06 (contract tests), card P6-01 (record builder and print view), SES checklist for P6-02 in `docs/decisions/2026-11-08-ses-checklist.md`.
+- **Docs** (PR #2). Waves plan, D31 to D34.
 
 ### P0-01. Fork the repository
 

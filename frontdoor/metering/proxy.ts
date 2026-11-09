@@ -21,7 +21,7 @@
 import { randomUUID } from "node:crypto";
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from "node:http";
 import { listPrice } from "./price.ts";
-import type { MeteringStore, TokenUsage } from "./store.ts";
+import { type MeteringStore, MeteringUnavailableError, type TokenUsage, UNAVAILABLE_MESSAGE } from "./store.ts";
 import { createUsageTap, usageFromMessage, type SeenUsage, type UsageTap } from "./usage.ts";
 
 /** What a paused student sees (C3 requirement 6). */
@@ -289,8 +289,10 @@ export function createMeteringProxy(options: MeteringProxyOptions): MeteringProx
 			route(req, res).catch((error: unknown) => {
 				log(`metering: request failed (${(error as Error)?.name ?? "Error"})`);
 				const api: Api = (req.url ?? "").startsWith(TAVILY_SEARCH_PATH) ? "tavily" : "anthropic";
-				if (!res.headersSent) sendError(res, api, 502, "api_error", "Metering proxy error.");
-				else res.destroy();
+				if (res.headersSent) res.destroy();
+				// The pause could not be checked: refuse, and say it is brief (DB-outage rule, 2026-11-08).
+				else if (error instanceof MeteringUnavailableError) sendError(res, api, 503, "api_error", UNAVAILABLE_MESSAGE);
+				else sendError(res, api, 502, "api_error", "Metering proxy error.");
 			});
 		},
 		async flush() {
