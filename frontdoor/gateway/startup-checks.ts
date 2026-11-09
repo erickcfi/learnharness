@@ -2,11 +2,12 @@
  * Checks that run before the front door starts. Any failure stops the
  * start, with every reason listed.
  *
- * PLUG POINT for w1-lockdown (C3 req 9): its production safety check, which
- * refuses to start when LH_PROVIDER_EVENTS, LH_BACKGROUND_CAPTURE or
- * DEEPGRAM_API_KEY is set. Add it to the list in frontdoor/server.ts. (Those
- * variables never reach a tenant server anyway: tenants get an allowlist,
- * see tenants/supervisor.ts.)
+ * The list is STARTUP_CHECKS in wiring/env.ts: lockdown's production safety
+ * check (C3 req 9: no LH_PROVIDER_EVENTS, LH_BACKGROUND_CAPTURE or
+ * DEEPGRAM_API_KEY in production), the secrets the front door needs in
+ * production, and the front door's own settings. (The blocked variables
+ * never reach a tenant server anyway: tenants get an allowlist, see
+ * tenants/supervisor.ts.)
  */
 export type StartupCheck = (env: Record<string, string | undefined>) => void;
 

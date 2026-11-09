@@ -31,15 +31,14 @@ export interface TemplateContext {
 }
 
 /**
- * PLUG POINT for w1-lockdown (C5, card P1-06): returns the File access
- * section for one tenant, which is upstream's restricted mode with the
- * library as the only folder. Return undefined to leave the section out.
- * Pass the provider to provisionTenant({ fileAccess }), and wire it in
- * frontdoor/server.ts.
+ * Returns the File access section for one tenant (C5, card P1-06). The
+ * front door passes lockdown's: upstream's restricted mode with the library
+ * as the only folder (wiring/front-door.ts). Return undefined to leave the
+ * section out.
  */
 export type FileAccessProvider = (context: TemplateContext) => FileAccessSettings | undefined;
 
-/** Until w1-lockdown plugs in, the template has no File access section. */
+/** No File access section (tests, and callers that do not set one). */
 export const NO_FILE_ACCESS_SECTION: FileAccessProvider = () => undefined;
 
 export interface TemplateSections {
