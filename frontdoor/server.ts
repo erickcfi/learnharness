@@ -63,9 +63,12 @@ const supervisor = new TenantSupervisor({
 });
 
 const gateway = createGateway({
-	// WIRING POINT (w1-database): the Supabase AccountStore adapter
-	// (createStudentAccount, getTenantByClerkUserId). Until then a restart
-	// forgets 18+ dates, so students tick the box again.
+	// WIRING POINT (w1-database): the Supabase AccountStore adapter. Until
+	// then a restart forgets 18+ dates, so students tick the box again.
+	// Every method must be safe to repeat, and two tabs can race on a first login:
+	// - get: getAccountByClerkUserId (ageConfirmedAt, createdAt) plus getTenantByAccountId (tenantId).
+	// - confirmAge: createStudentAccount; on a unique violation (Postgres 23505), read the account again and return it.
+	// - assignTenant: the tenant uuid the database made with the account.
 	accounts: new InMemoryAccountStore(),
 	clerk: createClerkGateway(config.clerk),
 	supervisor,
@@ -73,6 +76,9 @@ const gateway = createGateway({
 		// WIRING POINT (w1-lockdown): its FileAccessProvider in place of NO_FILE_ACCESS_SECTION (C5).
 		provisionTenant({ volumeDir: config.volumeDir, tenantId, fileAccess: NO_FILE_ACCESS_SECTION });
 		// WIRING POINT (w1-database): markTenantReady(db, tenantId) after the folder is written.
+		// This callback runs on EVERY sign-in, so call it only while the tenant's status
+		// is 'provisioning' (a 'ready' or 'retention' tenant stays as it is). If two logins
+		// race and it throws, read the tenant again rather than failing the sign-in.
 	},
 	sessionSecret: config.sessionSecret,
 	secureCookies: config.secureCookies,
