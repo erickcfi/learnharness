@@ -16,9 +16,10 @@
  */
 import { SendEmailCommand, SESv2Client } from "@aws-sdk/client-sesv2";
 import { isValidEmailAddress } from "./address.ts";
-import { EMAIL_FROM_ADDRESS, EMAIL_FROM_NAME, EMAIL_REPLY_TO, SES_CONFIGURATION_SET, type SesSettings } from "./config.ts";
+import { BILLING_FROM_ADDRESS, EMAIL_FROM_ADDRESS, EMAIL_FROM_NAME, EMAIL_REPLY_TO, SES_CONFIGURATION_SET, type SesSettings } from "./config.ts";
 
-export type EmailKind = "session-report" | "weekly-report";
+/** W2-8 adds the billing emails (billing/emails.ts): the sign-up confirmation and the annual renewal notice. */
+export type EmailKind = "session-report" | "weekly-report" | "billing-confirmation" | "annual-renewal-notice";
 
 export interface EmailMessage {
 	kind: EmailKind;
@@ -31,6 +32,8 @@ export interface EmailMessage {
 	headers?: Readonly<Record<string, string>>;
 	/** For logs only. */
 	tenantId?: string;
+	/** W2-8: "billing" sends from BILLING_FROM_ADDRESS. Default "reports" (EMAIL_FROM_ADDRESS). Only these two. */
+	from?: "reports" | "billing";
 }
 
 export interface SendResult {
@@ -68,6 +71,8 @@ export function checkEmailMessage(message: EmailMessage): void {
 
 /** "North Aero Ground Tutor" <reports@ground.flynorthaero.com> */
 export const FROM_HEADER = `"${EMAIL_FROM_NAME}" <${EMAIL_FROM_ADDRESS}>`;
+/** W2-8: "North Aero Ground Tutor" <billing@ground.flynorthaero.com> */
+export const BILLING_FROM_HEADER = `"${EMAIL_FROM_NAME}" <${BILLING_FROM_ADDRESS}>`;
 
 /** What SESv2Client.send needs from a client. Tests pass a fake. */
 export interface SesClientLike {
@@ -77,7 +82,7 @@ export interface SesClientLike {
 /** The SES v2 SendEmail input for one message (exported for tests). */
 export function sesSendEmailInput(message: EmailMessage) {
 	return {
-		FromEmailAddress: FROM_HEADER,
+		FromEmailAddress: message.from === "billing" ? BILLING_FROM_HEADER : FROM_HEADER,
 		Destination: { ToAddresses: [message.to] },
 		ReplyToAddresses: [EMAIL_REPLY_TO],
 		ConfigurationSetName: SES_CONFIGURATION_SET,

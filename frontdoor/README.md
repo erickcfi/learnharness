@@ -27,6 +27,7 @@ Decision and spike: `docs/decisions/2026-11-08-x5-front-door-spike.md`.
 | `app/account/` | The front door's Next.js pages. Clerk is set up in `app/account/layout.tsx` only. |
 | `app/(public)/`, `marketing/` | The public pages: landing, How it works, Help, legal placeholders (W2-11). Text in `marketing/copy.ts`. |
 | `plans/` | Prices and trial terms, the one place they live. |
+| `billing/` | Stripe (W2-8): Checkout with the trial, the 2-hour trial gate, Buy now, the customer portal, webhooks, coupons, billing emails. Pages in `app/account/plans/`. See `billing/README.md` for the Stripe settings and variables. |
 | `admin/`, `app/admin/` | The Owner's dashboard at `/admin` (W2-9): roles, tenant table, consent and session text, non-aviation flag, thresholds, pause buttons. See `admin/README.md`, including the one-time step that makes the Owner. |
 | `study-time/` | Active study time (PD1) from a heartbeat on the tutor's pages, per upstream chat. |
 | `library/` | The source library's upload, list and remove (P5-01). |
@@ -124,8 +125,11 @@ It sets `NODE_ENV=production` and runs `server.ts` with `tsx`.
 | `TAVILY_API_KEY` | The real Tavily key. Only the meter uses it. | Yes | Yes |
 | `SUPABASE_DB_URL` | The Supabase session pooler connection string (IPv4, port 5432), from Supabase's Connect panel. It holds the database password. TLS is required unless the string sets `sslmode`. | Yes | Yes |
 | `LH_TRIAL_HASH_KEY` | Scrambles each trial email (a one-way keyed hash) in `trial_claims`, so one email gets one trial even after day 91. 32+ random characters (for example `openssl rand -base64 48`). **Never change it** once students have signed up; keep a copy outside Railway. | Yes | Yes |
-| `SES_REGION`, `SES_ACCESS_KEY_ID`, `SES_SECRET_ACCESS_KEY` | Amazon SES for report email (a send-only IAM key). All three or none: none means email off. See `docs/decisions/2026-11-08-email-reports.md`. | Key: yes | To send email |
-| `FRONTDOOR_PUBLIC_URL` | The site address in email links. Default `https://ground.flynorthaero.com`. | No | Staging only |
+| `SES_REGION`, `SES_ACCESS_KEY_ID`, `SES_SECRET_ACCESS_KEY` | Amazon SES for report email and billing email (a send-only IAM key). All three or none: none means email off. See `docs/decisions/2026-11-08-email-reports.md`. Billing's sign-up confirmation and annual renewal notice need it at launch (California automatic renewal law). | Key: yes | To send email |
+| `FRONTDOOR_PUBLIC_URL` | The site address in email links (reports and billing). Default `https://ground.flynorthaero.com`. | No | Staging only |
+| `STRIPE_SECRET_KEY` | Stripe's secret key (`sk_test_...` on staging). See `billing/README.md`. | Yes | Yes, unless `FRONTDOOR_BILLING=off` |
+| `STRIPE_WEBHOOK_SECRET` | The Stripe webhook endpoint's signing secret (`whsec_...`). | Yes | Yes, unless `FRONTDOOR_BILLING=off` |
+| `FRONTDOOR_BILLING` | `off`: no Stripe, no plans screen, no trial gate, and a loud warning at start. Staging only, before Stripe test mode is set up. Refused on the launch address: set `FRONTDOOR_PUBLIC_URL` to the staging address. | No | Never at launch |
 | `FRONTDOOR_AUTHORIZED_PARTIES` | The site's origins, comma-separated, for example `https://ground.flynorthaero.com` and the staging address. Clerk logins are accepted only from these. | No | Recommended |
 | `CLERK_JWT_KEY` | Clerk's PEM public key: checks logins without a call to Clerk. | No (public) | No |
 | `FRONTDOOR_VOLUME` | The volume's mount path. Default `/data`. | No | Only if not `/data` |

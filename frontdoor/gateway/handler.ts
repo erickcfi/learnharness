@@ -9,6 +9,10 @@
  *                         the front door's login cookie
  *   /account/reports, /account/unsubscribe  email report pages (W2-10,
  *                         reports/pages.ts; settings check the login there)
+ *   /account/stripe/webhook POST  Stripe's events (W2-8): no login, Stripe's
+ *                         signature is the check (billing/gateway-hook.ts)
+ *   /account/billing/...  billing actions (W2-8), behind the same login
+ *                         check as the tutor
  *   /account/...          the front door's own Next.js pages (no login needed)
  *   public pages    GET   How it works, Help, /legal/*, robots.txt and
  *                         sitemap.xml come from the front door's app, login
@@ -27,6 +31,7 @@
  * path is what Next.js or the tenant receives.
  */
 import type { IncomingMessage, OutgoingHttpHeaders, ServerResponse } from "node:http";
+import type { BillingGatewayHook } from "../billing/gateway-hook.ts";
 import { isAlwaysPublicPath, LANDING_PATH } from "../marketing/public-paths.ts";
 import type { TenantGate } from "../pause/gate.ts";
 import type { AccountStore } from "../tenants/accounts.ts";
@@ -72,6 +77,8 @@ export interface GatewayDeps {
 	now?: () => number;
 	/** Never given session text or email addresses (cross-cutting req 3). */
 	log?: (message: string) => void;
+	/** W2-8: Stripe's webhook, the /account/billing routes, and the trial gate (billing/gateway-hook.ts). */
+	billing?: BillingGatewayHook;
 	/** W2-9: the front door's own routes for a signed-in student, after the login check: the study-time heartbeat (P3-02) and the session-text switch (P3-04). See admin/wiring.ts. */
 	studentRoutes?: { handles(pathname: string): boolean; handle(req: IncomingMessage, res: ServerResponse, tenantId: string, pathname: string): Promise<void> };
 	/** P3-01: /admin and everything under it (frontdoor/admin). Without it, /admin is 404. */
@@ -244,6 +251,10 @@ export function createGateway(deps: GatewayDeps): (req: IncomingMessage, res: Se
 			setCookie.push(cookie(SESSION_COOKIE, await signSession(current, deps.sessionSecret, now()), SESSION_MAX_AGE_SECONDS));
 		}
 
+		// W2-8: billing's own pages (plans data, Checkout, Buy now, portal) first, so a paused student or one
+		// whose plan ended can still manage billing or subscribe again.
+		const billingCtx = { tenantId: current.tenantId, userId: current.userId, pathname, target, origin: `${proto(req)}://${host(req)}`, setCookie };
+		if (deps.billing?.owns(pathname) && (await deps.billing.handle(req, res, billingCtx))) return;
 		// W2-9: study-time heartbeat (PD1) and the session-text switch, for this login's tenant.
 		if (deps.studentRoutes?.handles(pathname)) return deps.studentRoutes.handle(req, res, current.tenantId, pathname);
 		// W2-6: route blocks and the model lock (gateway/route-guard.ts).
@@ -253,6 +264,8 @@ export function createGateway(deps: GatewayDeps): (req: IncomingMessage, res: Se
 		// W2-7: paused, plan ended, or deleted (pause/gate.ts). Before the tenant's server is started.
 		const signOut = () => signInRequired(req, res, pathname, target, [clear(SESSION_COOKIE)]);
 		if (deps.tenantGate && (await deps.tenantGate.handle(req, res, { tenantId: current.tenantId, userId: current.userId, pathname, setCookie, signOut }))) return;
+		// W2-8: the trial gate (plans screen, 402 on new turns), after the pause and plan-ended screens.
+		if (deps.billing && !deps.billing.owns(pathname) && (await deps.billing.handle(req, res, billingCtx))) return;
 
 		let port: number;
 		let tenantHeaders: Record<string, string> = {};
@@ -272,6 +285,10 @@ export function createGateway(deps: GatewayDeps): (req: IncomingMessage, res: Se
 		const url = new URL(`http://front.door${raw}`);
 		const pathname = url.pathname;
 		const target = `${pathname}${url.search}`;
+
+		// W2-8: Stripe's webhook needs no login (its signature is checked); the billing routes need the tutor's login.
+		if (deps.billing && pathname === deps.billing.webhookPath && req.method === "POST") return deps.billing.webhook(req, res);
+		if (deps.billing?.owns(pathname)) return handleTenantRequest(req, res, pathname, target);
 
 		if (pathname === FRONT_DOOR_PREFIX || pathname.startsWith(`${FRONT_DOOR_PREFIX}/`)) {
 			// W2-7: /account/export and /account/record need the login, so they take the tenant path.

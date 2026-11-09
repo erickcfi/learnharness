@@ -27,6 +27,8 @@ type Env = Readonly<Record<string, string | undefined>>;
 
 /** N1. A verified domain covers every address in it (checklist, step 8). */
 export const EMAIL_FROM_ADDRESS = "reports@ground.flynorthaero.com";
+/** W2-8: billing emails (sign-up confirmation, annual renewal notice) come from here (master, 2026-11-08). Same verified domain. */
+export const BILLING_FROM_ADDRESS = "billing@ground.flynorthaero.com";
 export const EMAIL_FROM_NAME = "North Aero Ground Tutor";
 /** PD7. Mail sent to reports@ cannot be received. */
 export const EMAIL_REPLY_TO = CONTACT_EMAIL;

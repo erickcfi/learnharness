@@ -14,6 +14,7 @@
  * calls fail at the provider. Messages name variables, never their values.
  */
 import { randomBytes } from "node:crypto";
+import { assertBillingEnv } from "../billing/config.ts";
 import { assertEmailEnv } from "../email/config.ts";
 import { loadConfig, type FrontDoorConfig } from "../gateway/config.ts";
 import { runStartupChecks, type StartupCheck } from "../gateway/startup-checks.ts";
@@ -60,7 +61,7 @@ const assertFrontDoorConfig: StartupCheck = (env) => {
 };
 
 /** Every start check, in order. Any failure stops the start, with every reason listed. */
-export const STARTUP_CHECKS: readonly StartupCheck[] = [assertProductionSafe, assertWiringEnv, assertFrontDoorConfig, assertTrialHashKey, assertEmailEnv];
+export const STARTUP_CHECKS: readonly StartupCheck[] = [assertProductionSafe, assertWiringEnv, assertFrontDoorConfig, assertTrialHashKey, assertEmailEnv, assertBillingEnv];
 
 export interface WiringConfig {
 	production: boolean;

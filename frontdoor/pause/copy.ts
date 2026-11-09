@@ -7,6 +7,7 @@
  * meter's PAUSED_MESSAGE (metering/proxy.ts; a test keeps them equal), so
  * the tutor and the screen say the same thing.
  */
+import { SUBSCRIBE_AGAIN_ACTION } from "../billing/copy.ts";
 import { CONTACT_EMAIL } from "../marketing/site.ts";
 
 export { CONTACT_EMAIL };
@@ -50,7 +51,7 @@ export const ACTIONS = {
  * W2-8's spot: buttons shown first on the plan-ended screen, for example
  * { label: "Subscribe again", href: "<the plans page>" }. Empty until then.
  */
-export const RETENTION_EXTRA_ACTIONS: ReadonlyArray<{ label: string; href: string }> = [];
+export const RETENTION_EXTRA_ACTIONS: ReadonlyArray<{ label: string; href: string }> = [SUBSCRIBE_AGAIN_ACTION];
 
 /** README.txt at the top of the data export (P1-08). */
 export const EXPORT_README = {
