@@ -106,21 +106,24 @@ export interface Sitting {
 	startedAt: Date;
 	/** The sitting's last active moment. */
 	endedAt: Date;
+	/** All active seconds, including time outside any chat. */
 	activeSeconds: number;
 	/** Upstream chats studied in the sitting, sorted. Time outside any chat has no id here. */
 	chatIds: string[];
+	/** Each upstream chat with its active seconds in the sitting, in first-use order (W2-10 picks the one with the most). */
+	chats: Array<{ chatId: string; activeSeconds: number }>;
 }
 
 /**
  * Sittings that have ended: runs of study across any chats with no gap
  * longer than `idleMinutes` (default SESSION_END_MINUTES), whose last active
  * moment is at least that long before `now`. `since` keeps only sittings
- * that ended after it (for example the last one already handled).
- * Oldest first.
+ * that ended after it (for example the last one already handled);
+ * `endedSince` keeps those that ended at or after it. Oldest first.
  */
 export async function listEndedSittings(
 	db: Db,
-	options: { now?: Date; since?: Date; idleMinutes?: number; tenantId?: string; limit?: number } = {},
+	options: { now?: Date; since?: Date; endedSince?: Date; idleMinutes?: number; tenantId?: string; limit?: number } = {},
 ): Promise<Sitting[]> {
 	const now = options.now ?? new Date();
 	const gapSeconds = (options.idleMinutes ?? SESSION_END_MINUTES) * 60;
@@ -134,21 +137,45 @@ export async function listEndedSittings(
 		   select *, sum(case when prev_end is null or extract(epoch from (started_at - prev_end)) > $1 then 1 else 0 end)
 		             over (partition by tenant_id order by started_at, id) as grp
 		   from s
+		 ), sit as (
+		   select tenant_id, grp, min(started_at) as started, max(last_active_at) as ended, sum(active_seconds) as secs
+		   from g group by tenant_id, grp
+		   having max(last_active_at) <= $2 and max(last_active_at) > $3 and max(last_active_at) >= $6
+		   order by max(last_active_at), tenant_id limit $5
+		 ), c as (
+		   select g.tenant_id, g.grp, g.chat_id, min(g.started_at) as first_at, sum(g.active_seconds) as secs
+		   from g join sit on sit.tenant_id = g.tenant_id and sit.grp = g.grp
+		   where g.chat_id is not null group by g.tenant_id, g.grp, g.chat_id
 		 )
-		 select tenant_id, min(started_at) as started, max(last_active_at) as ended, sum(active_seconds) as secs,
-		        coalesce(string_agg(distinct chat_id, ',' order by chat_id), '') as chats
-		 from g group by tenant_id, grp
-		 having max(last_active_at) <= $2 and max(last_active_at) > $3
-		 order by max(last_active_at) limit $5`,
-		[gapSeconds, cutoff, options.since ?? new Date(0), options.tenantId ?? null, options.limit ?? 500],
+		 select sit.tenant_id, sit.grp, sit.started, sit.ended, sit.secs, c.chat_id, c.secs as chat_secs
+		 from sit left join c on c.tenant_id = sit.tenant_id and c.grp = sit.grp
+		 order by sit.ended, sit.tenant_id, sit.grp, c.first_at, c.chat_id`,
+		[gapSeconds, cutoff, options.since ?? new Date(0), options.tenantId ?? null, options.limit ?? 500, options.endedSince ?? new Date(0)],
 	);
-	return rows.map((r) => ({
-		tenantId: String(r.tenant_id),
-		startedAt: toDate(r.started),
-		endedAt: toDate(r.ended),
-		activeSeconds: num(r.secs),
-		chatIds: String(r.chats ?? "")
-			.split(",")
-			.filter(Boolean),
-	}));
+	const out: Sitting[] = [];
+	let current: Sitting | null = null;
+	let key = "";
+	for (const r of rows) {
+		const k = `${String(r.tenant_id)}#${String(r.grp)}`;
+		if (!current || k !== key) {
+			key = k;
+			current = { tenantId: String(r.tenant_id), startedAt: toDate(r.started), endedAt: toDate(r.ended), activeSeconds: num(r.secs), chatIds: [], chats: [] };
+			out.push(current);
+		}
+		if (r.chat_id !== null && r.chat_id !== undefined) current.chats.push({ chatId: String(r.chat_id), activeSeconds: num(r.chat_secs) });
+	}
+	for (const s of out) s.chatIds = s.chats.map((c) => c.chatId).sort();
+	return out;
+}
+
+/**
+ * The ended sittings in the shape the email reports read
+ * (frontdoor/reports, EndedSittingsSource): one tenant's sittings that ended
+ * at or after `endedSince`.
+ */
+export function endedSittingsSource(db: Db): (query: { tenantId: string; endedSince: Date; now: Date }) => Promise<
+	Array<{ tenantId: string; sittingStartedAt: Date; endedAt: Date; chats: Array<{ chatId: string; activeSeconds: number }> }>
+> {
+	return async ({ tenantId, endedSince, now }) =>
+		(await listEndedSittings(db, { tenantId, endedSince, now })).map((s) => ({ tenantId: s.tenantId, sittingStartedAt: s.startedAt, endedAt: s.endedAt, chats: s.chats }));
 }

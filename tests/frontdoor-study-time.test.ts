@@ -25,6 +25,7 @@ import {
 	createActivityCredit,
 	createStudyTimeEndpoint,
 	createStudyTimeRecorder,
+	endedSittingsSource,
 	HEARTBEAT_SECONDS,
 	listEndedSessions,
 	listEndedSittings,
@@ -236,7 +237,17 @@ describe("sittings: runs of study across chats, for the after-session email (W2-
 		assert.deepEqual(await mine("11:15"), [], "29 idle minutes: still sitting");
 		const first = await mine("11:21");
 		assert.equal(first.length, 1);
-		assert.deepEqual(first[0], { tenantId: tid, startedAt: at("10:00"), endedAt: at("10:50"), activeSeconds: 40 * 60, chatIds: ["chat_a", "chat_b"] });
+		assert.deepEqual(first[0], {
+			tenantId: tid,
+			startedAt: at("10:00"),
+			endedAt: at("10:50"),
+			activeSeconds: 40 * 60,
+			chatIds: ["chat_a", "chat_b"],
+			chats: [
+				{ chatId: "chat_a", activeSeconds: 1200 },
+				{ chatId: "chat_b", activeSeconds: 900 },
+			],
+		});
 		const both = await mine("13:00");
 		assert.deepEqual(both.map((s) => [s.startedAt.toISOString(), s.endedAt.toISOString(), s.activeSeconds]), [
 			[at("10:00").toISOString(), at("10:50").toISOString(), 2400],
@@ -245,6 +256,34 @@ describe("sittings: runs of study across chats, for the after-session email (W2-
 		assert.deepEqual((await mine("13:00", first[0]?.endedAt)).map((s) => s.startedAt.toISOString()), [at("12:00").toISOString()], "since skips sittings already handled");
 		const everyone = await listEndedSittings(t.db, { now: at("13:00") });
 		assert.ok(everyone.some((s) => s.tenantId === other && s.chatIds.join() === "chat_x"));
+	});
+
+	it("gives per-chat seconds in first-use order, in the shape the email reports read", async () => {
+		const tid = await tenant();
+		await stretch(tid, "chat_z", "09:10", 10); // 09:00 to 09:10
+		await stretch(tid, "chat_a", "09:30", 15); // 09:15 to 09:30
+		await stretch(tid, "chat_z", "09:50", 15); // 09:35 to 09:50, back to the first chat
+		const [s] = await listEndedSittings(t.db, { now: at("11:00"), tenantId: tid });
+		assert.deepEqual(s?.chats, [
+			{ chatId: "chat_z", activeSeconds: 1500 },
+			{ chatId: "chat_a", activeSeconds: 900 },
+		]);
+		assert.deepEqual(s?.chatIds, ["chat_a", "chat_z"]);
+
+		const source = endedSittingsSource(t.db);
+		assert.deepEqual(await source({ tenantId: tid, endedSince: at("09:50"), now: at("11:00") }), [
+			{
+				tenantId: tid,
+				sittingStartedAt: at("09:00"),
+				endedAt: at("09:50"),
+				chats: [
+					{ chatId: "chat_z", activeSeconds: 1500 },
+					{ chatId: "chat_a", activeSeconds: 900 },
+				],
+			},
+		], "endedSince includes a sitting that ended exactly then");
+		assert.deepEqual(await source({ tenantId: tid, endedSince: at("09:51"), now: at("11:00") }), []);
+		assert.deepEqual(await source({ tenantId: tid, endedSince: at("09:00"), now: at("10:10") }), [], "not ended yet");
 	});
 });
 

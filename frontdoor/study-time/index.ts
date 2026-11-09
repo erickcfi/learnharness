@@ -6,6 +6,7 @@ export { ACTIVE_WINDOW_SECONDS, createActivityCredit, HEARTBEAT_SECONDS, STRETCH
 export { chatIdFromPath, createStudyTimeEndpoint, type StudyTimeEndpoint } from "./endpoint.ts";
 export {
 	activeSecondsBySession,
+	endedSittingsSource,
 	listEndedSessions,
 	listEndedSittings,
 	listSessionStudy,
