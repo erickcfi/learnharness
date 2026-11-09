@@ -7,6 +7,8 @@
  *                         sign-up: records the 18+ tick, creates and
  *                         provisions the tenant, starts its server, and sets
  *                         the front door's login cookie
+ *   /account/reports, /account/unsubscribe  email report pages (W2-10,
+ *                         reports/pages.ts; settings check the login there)
  *   /account/...          the front door's own Next.js pages (no login needed)
  *   public pages    GET   How it works, Help, /legal/*, robots.txt and
  *                         sitemap.xml come from the front door's app, login
@@ -24,6 +26,7 @@
  */
 import type { IncomingMessage, OutgoingHttpHeaders, ServerResponse } from "node:http";
 import { isAlwaysPublicPath, LANDING_PATH } from "../marketing/public-paths.ts";
+import type { TenantGate } from "../pause/gate.ts";
 import type { AccountStore } from "../tenants/accounts.ts";
 import type { ClerkGateway } from "./auth.ts";
 import { clearCookie, parseCookies, serializeCookie } from "./cookies.ts";
@@ -60,6 +63,10 @@ export interface GatewayDeps {
 	trustForwardedHeaders: boolean;
 	/** The front door's Next.js request handler, for /account pages. */
 	frontDoorApp(req: IncomingMessage, res: ServerResponse): unknown;
+	/** W2-7 (pause/gate.ts): the pause and plan-ended screens, and the export and record links. */
+	tenantGate?: TenantGate;
+	/** W2-10: /account/reports and /account/unsubscribe (reports/pages.ts). True when it answered. */
+	reportPages?(req: IncomingMessage, res: ServerResponse, url: URL): Promise<boolean>;
 	now?: () => number;
 	/** Never given session text or email addresses (cross-cutting req 3). */
 	log?: (message: string) => void;
@@ -235,6 +242,9 @@ export function createGateway(deps: GatewayDeps): (req: IncomingMessage, res: Se
 		const verdict = await guardRoute(req, pathname, deps.routePolicy ?? defaultPolicy);
 		if (verdict.kind === "refuse") return sendJson(res, verdict.status, { error: verdict.message }, setCookie);
 		if (verdict.kind === "redirect-home") return redirect(res, 302, "/", setCookie);
+		// W2-7: paused, plan ended, or deleted (pause/gate.ts). Before the tenant's server is started.
+		const signOut = () => signInRequired(req, res, pathname, target, [clear(SESSION_COOKIE)]);
+		if (deps.tenantGate && (await deps.tenantGate.handle(req, res, { tenantId: current.tenantId, userId: current.userId, pathname, setCookie, signOut }))) return;
 
 		let port: number;
 		let tenantHeaders: Record<string, string> = {};
@@ -260,10 +270,13 @@ export function createGateway(deps: GatewayDeps): (req: IncomingMessage, res: Se
 		const target = `${pathname}${url.search}`;
 
 		if (pathname === FRONT_DOOR_PREFIX || pathname.startsWith(`${FRONT_DOOR_PREFIX}/`)) {
+			// W2-7: /account/export and /account/record need the login, so they take the tenant path.
+			if (deps.tenantGate?.ownsPath(pathname)) return handleTenantRequest(req, res, pathname, target);
 			req.url = target;
 			if (pathname === FRONT_DOOR_PREFIX || pathname === `${FRONT_DOOR_PREFIX}/`) return redirect(res, 302, `${FRONT_DOOR_PREFIX}/sign-in`);
 			if (pathname === `${FRONT_DOOR_PREFIX}/age` && req.method === "POST") return handleAge(req, res);
 			if (pathname === `${FRONT_DOOR_PREFIX}/start` && (req.method === "GET" || req.method === "HEAD")) return handleStart(req, res, url);
+			if (deps.reportPages && (await deps.reportPages(req, res, url))) return;
 			// Set before Next.js starts the answer (Next.js custom-server guide).
 			if (pathname === `${FRONT_DOOR_PREFIX}/sign-out`) res.setHeader("Set-Cookie", [clear(SESSION_COOKIE), clear(AGE_COOKIE)]);
 			await deps.frontDoorApp(req, res);

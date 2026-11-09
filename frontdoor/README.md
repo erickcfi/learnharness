@@ -22,6 +22,8 @@ Decision and spike: `docs/decisions/2026-11-08-x5-front-door-spike.md`.
 | `db/`, `supabase/` | The database module and its migrations. See `db/README.md`. |
 | `production-safety/`, `log-hygiene/`, `settings-template/`, `source-link/` | Lockdown pieces. |
 | `records/` | The printed study record. |
+| `pause/`, `retention/`, `backups/` | W2-7: alert and autopause, the pause and plan-ended screens, unpause, the export zip, the day-91 delete, nightly tenant copies and restore. See `pause/README.md`. |
+| `email/`, `reports/` | Email reports (W2-10): the SES sender and its fake, the session-end and weekly reports, the loop that sends them, `/account/reports` and `/account/unsubscribe`. Wording in `email/copy.ts`. See `docs/decisions/2026-11-08-email-reports.md`. |
 | `app/account/` | The front door's Next.js pages. Clerk is set up in `app/account/layout.tsx` only. |
 | `app/(public)/`, `marketing/` | The public pages: landing, How it works, Help, legal placeholders (W2-11). Text in `marketing/copy.ts`. |
 | `plans/` | Prices and trial terms, the one place they live. |
@@ -101,6 +103,9 @@ It sets `NODE_ENV=production` and runs `server.ts` with `tsx`.
 | `<volume>/auth/<tenant id>.json` | Each tenant server's key file (`LH_AUTH_FILE`). It holds no key: the meter has the keys. |
 | `<volume>/library/` | The shared source library (`LH_LIBRARY_DIR`), the only folder the tutors' file tools may read. Made at start if missing. |
 | `<volume>/metering/` | `pending-usage.jsonl` and `rejected-usage.jsonl`, only after a database outage. |
+| `<volume>/backups/nightly/<date>/` | Nightly copy of each tenant folder, with a manifest, newest 7 nights (W2-7). Restore: `docs/decisions/2026-11-08-backups.md`. |
+| `<volume>/restore-kept/` | A folder a live restore replaced, kept until a person removes it. |
+| `<volume>/retention/pending-login-deletes.json` | Clerk users of deleted tenants still to delete, only while Clerk could not be reached on day 91 (owner-only). |
 
 **Variables:**
 
@@ -113,6 +118,9 @@ It sets `NODE_ENV=production` and runs `server.ts` with `tsx`.
 | `ANTHROPIC_API_KEY` | The real Anthropic key. Only the meter uses it. | Yes | Yes |
 | `TAVILY_API_KEY` | The real Tavily key. Only the meter uses it. | Yes | Yes |
 | `SUPABASE_DB_URL` | The Supabase session pooler connection string (IPv4, port 5432), from Supabase's Connect panel. It holds the database password. TLS is required unless the string sets `sslmode`. | Yes | Yes |
+| `LH_TRIAL_HASH_KEY` | Scrambles each trial email (a one-way keyed hash) in `trial_claims`, so one email gets one trial even after day 91. 32+ random characters (for example `openssl rand -base64 48`). **Never change it** once students have signed up; keep a copy outside Railway. | Yes | Yes |
+| `SES_REGION`, `SES_ACCESS_KEY_ID`, `SES_SECRET_ACCESS_KEY` | Amazon SES for report email (a send-only IAM key). All three or none: none means email off. See `docs/decisions/2026-11-08-email-reports.md`. | Key: yes | To send email |
+| `FRONTDOOR_PUBLIC_URL` | The site address in email links. Default `https://ground.flynorthaero.com`. | No | Staging only |
 | `FRONTDOOR_AUTHORIZED_PARTIES` | The site's origins, comma-separated, for example `https://ground.flynorthaero.com` and the staging address. Clerk logins are accepted only from these. | No | Recommended |
 | `CLERK_JWT_KEY` | Clerk's PEM public key: checks logins without a call to Clerk. | No (public) | No |
 | `FRONTDOOR_VOLUME` | The volume's mount path. Default `/data`. | No | Only if not `/data` |

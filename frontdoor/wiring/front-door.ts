@@ -18,6 +18,9 @@
  *  - Metering: the meter listens on 127.0.0.1 on a free port. Each tenant
  *    server gets its pass key and the meter's address, never a real key.
  *    The real Anthropic and Tavily keys stay in this process.
+ *  - Email reports (W2-10, reports/wiring.ts): the report loop and the
+ *    /account/reports and /account/unsubscribe pages. The SES keys stay in
+ *    this process too.
  *
  * Tenant servers still get only the supervisor's short allowlist from this
  * process's environment, plus the two sections above (tenants/supervisor.ts).
@@ -38,7 +41,9 @@ import { createMeteringProxy } from "../metering/proxy.ts";
 import { createMemoryMeteringStore } from "../metering/store.ts";
 import { createSupabaseMeteringStore, type DurableMeteringStore } from "../metering/supabase-store.ts";
 import { meteringEnvForTenant } from "../metering/tenant-env.ts";
+import { createDataSafety, type DataSafety } from "../pause/data-safety.ts";
 import { tenantServerEnv } from "../production-safety/index.ts";
+import { type EmailReports, type EmailReportsOptions, startEmailReports } from "../reports/wiring.ts";
 import { fileAccessTemplate, libraryDir, tenantLockdownEnv } from "../settings-template/file-access.ts";
 import { type AccountStore, InMemoryAccountStore } from "../tenants/accounts.ts";
 import { provisionTenant } from "../tenants/provisioning.ts";
@@ -68,6 +73,8 @@ export interface FrontDoorOptions {
 	/** Tests only: extra API routes a stand-in tenant answers (W2-6 route table).
 	 *  Never set from the environment. */
 	extraTestRoutes?: readonly RouteRule[];
+	/** Tests only: the email sender and student directory for the reports (W2-10). */
+	email?: Pick<EmailReportsOptions, "sender" | "students">;
 	/** Operational lines. Never given session text or email addresses. */
 	log?: (line: string) => void;
 }
@@ -80,6 +87,10 @@ export interface FrontDoor {
 	/** A tenant's server (started if needed) and the secret header every
 	 *  request to it needs (W2-6 wall A). For records, dashboard, email. */
 	tenantEndpoint(tenantId: string): Promise<TenantEndpoint>;
+	/** W2-7, with a database: pause controls (dashboard), retention calls (Stripe), the cost watch. */
+	dataSafety?: DataSafety;
+	/** Email reports (W2-10). */
+	email: Pick<EmailReports, "mode" | "sender" | "runner">;
 	/** Stops tenant servers, writes every usage row it still holds, and closes. */
 	close(): Promise<void>;
 }
@@ -117,6 +128,17 @@ export async function startFrontDoor(options: FrontDoorOptions): Promise<FrontDo
 		? createSupabaseMeteringStore(db, { log, pendingFile: pendingUsageFile(config.volumeDir) })
 		: { ...createMemoryMeteringStore(), flush: async () => {}, close: async () => {}, pending: () => 0 };
 	if (!db) log("no database: accounts and usage are kept in memory until the front door stops");
+	const clerk = options.clerk ?? createClerkGateway(config.clerk);
+	// W2-7 (pause/data-safety.ts): alert and autopause after each call, retention refusal, screens, export, jobs. Needs the database.
+	const safety = db
+		? createDataSafety({
+				db,
+				volumeDir: config.volumeDir,
+				log,
+				secureCookies: config.secureCookies,
+				...(clerk.deleteUser ? { deleteLogin: (id: string) => clerk.deleteUser!(id) } : {}),
+			})
+		: undefined;
 
 	// Lockdown: the shared library is the only folder a tenant's file tools may read.
 	const library = libraryDir(config.volumeDir);
@@ -125,7 +147,7 @@ export async function startFrontDoor(options: FrontDoorOptions): Promise<FrontDo
 
 	// Metering: on 127.0.0.1 only, on a free port.
 	const meter = createMeteringProxy({
-		store: meteringStore,
+		store: safety ? safety.wrapMeterStore(meteringStore) : meteringStore,
 		resolveTenant: passKeyResolver(wiring.passKeySecret),
 		anthropic: { apiKey: wiring.anthropicApiKey, ...(options.upstream?.anthropicBaseUrl ? { baseUrl: options.upstream.anthropicBaseUrl } : {}) },
 		...(wiring.tavilyApiKey
@@ -156,10 +178,28 @@ export async function startFrontDoor(options: FrontDoorOptions): Promise<FrontDo
 	// W2-6: the route table, with the Owner's File access for the agent-section check.
 	const policy = studentRoutePolicy({ fileAccess: fileAccessTemplate(library) });
 	const routePolicy = options.extraTestRoutes ? { ...policy, rules: [...options.extraTestRoutes, ...policy.rules] } : policy;
+	const dataSafety = safety?.attach(supervisor);
+
+	// Email reports (W2-10): the report loop and the report pages.
+	const email = startEmailReports({
+		env: options.env,
+		db: db ?? null,
+		accounts,
+		clerk,
+		clerkSettings: config.clerk,
+		sessionSecret: config.sessionSecret,
+		secureCookies: config.secureCookies,
+		trustForwardedHeaders: config.trustForwardedHeaders,
+		// W2-6 wall A: every read of a tenant's server carries that tenant's secret.
+		tenantFetch: (tenantId, path, init) => supervisor.tenantFetch(tenantId, path, init),
+		// At the w2-dashboard merge, add: sittings: <frontdoor/study-time's ended-sittings export>.
+		...options.email,
+		log,
+	});
 
 	const gateway = createGateway({
 		accounts,
-		clerk: options.clerk ?? createClerkGateway(config.clerk),
+		clerk,
 		supervisor,
 		routePolicy,
 		provision: async (tenantId) => {
@@ -171,6 +211,8 @@ export async function startFrontDoor(options: FrontDoorOptions): Promise<FrontDo
 		secureCookies: config.secureCookies,
 		trustForwardedHeaders: config.trustForwardedHeaders,
 		frontDoorApp: options.frontDoorApp,
+		...(dataSafety ? { tenantGate: dataSafety.gate } : {}),
+		reportPages: email.reportPages,
 		log,
 	});
 
@@ -184,9 +226,13 @@ export async function startFrontDoor(options: FrontDoorOptions): Promise<FrontDo
 		url,
 		meterUrl,
 		tenantEndpoint: (tenantId) => supervisor.endpoint(tenantId),
+		...(safety ? { dataSafety: safety } : {}),
+		email: { mode: email.mode, sender: email.sender, runner: email.runner },
 		close() {
 			closing ??= (async () => {
+				await safety?.close();
 				const stopped = closeServer(server);
+				await email.close();
 				await supervisor.stopAll();
 				await stopped;
 				// Every usage write already started, then every row still waiting.

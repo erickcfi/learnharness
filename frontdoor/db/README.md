@@ -29,7 +29,7 @@ Record in `docs/decisions/2026-11-08-database.md`.
 | `trial_claims` | Email hashes and card fingerprints that had a trial | C2 req 2 |
 | `study_time` | Active study stretches per tenant and chat | PD1 |
 | `report_settings` | Session and weekly report switches (off by default), address, unsubscribe token | C6 req 3 |
-| `report_sends` | Reports claimed and sent, so none goes out twice | C6 req 3 |
+| `report_sends` | Reports claimed and sent, so none goes out twice: one per study sitting (W2-10 migration) or week | C6 req 3 |
 | `topic_labels` | Haiku's aviation flag per session topic | C7 req 4 |
 | `owner_settings` | One row: alert $60, autopause $89 | C3 req 5 |
 | `tenant_overview` (view) | Dashboard status: trial, active, paused, canceled, retention, none | C7 req 2 |

@@ -33,6 +33,7 @@ const GOOD: Record<string, string> = {
 	ANTHROPIC_API_KEY: "test-anthropic-key-production-start",
 	TAVILY_API_KEY: "test-tavily-key-production-start",
 	SUPABASE_DB_URL: "postgres://user:pass@127.0.0.1:9/never_dialed",
+	LH_TRIAL_HASH_KEY: "test-trial-hash-key-0123456789abcdefghij",
 	FRONTDOOR_VOLUME: path.join(REPO, ".never-created-volume"),
 	PORT: "0",
 };
@@ -88,7 +89,7 @@ describe("production start", { concurrency: true }, () => {
 		await assertRefused({ ...GOOD, LH_PROVIDER_EVENTS: SENTINEL }, ["LH_PROVIDER_EVENTS"]);
 	});
 
-	for (const name of ["FRONTDOOR_PASS_KEY_SECRET", "ANTHROPIC_API_KEY", "TAVILY_API_KEY", "SUPABASE_DB_URL"]) {
+	for (const name of ["FRONTDOOR_PASS_KEY_SECRET", "ANTHROPIC_API_KEY", "TAVILY_API_KEY", "SUPABASE_DB_URL", "LH_TRIAL_HASH_KEY"]) {
 		it(`fails when ${name} is missing`, async () => {
 			await assertRefused(without(name), [name]);
 		});
