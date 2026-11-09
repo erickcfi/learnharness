@@ -30,6 +30,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from "node:net";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createDashboard } from "../admin/wiring.ts";
 import { type Db, markTenantReady } from "../db/index.ts";
 import type { ClerkGateway } from "../gateway/auth.ts";
 import { createClerkGateway } from "../gateway/clerk.ts";
@@ -43,6 +44,7 @@ import { createSupabaseMeteringStore, type DurableMeteringStore } from "../meter
 import { meteringEnvForTenant } from "../metering/tenant-env.ts";
 import { createDataSafety, type DataSafety } from "../pause/data-safety.ts";
 import { tenantServerEnv } from "../production-safety/index.ts";
+import { endedSittingsSource } from "../study-time/queries.ts";
 import { type EmailReports, type EmailReportsOptions, startEmailReports } from "../reports/wiring.ts";
 import { fileAccessTemplate, libraryDir, tenantLockdownEnv } from "../settings-template/file-access.ts";
 import { type AccountStore, InMemoryAccountStore } from "../tenants/accounts.ts";
@@ -180,6 +182,27 @@ export async function startFrontDoor(options: FrontDoorOptions): Promise<FrontDo
 	const routePolicy = options.extraTestRoutes ? { ...policy, rules: [...options.extraTestRoutes, ...policy.rules] } : policy;
 	const dataSafety = safety?.attach(supervisor);
 
+	// W2-9: the Owner's dashboard at /admin, study time (PD1), the non-aviation flag (admin/wiring.ts).
+	const dashboard = createDashboard({
+		db: db ?? null,
+		sessionSecret: config.sessionSecret,
+		clerk,
+		secureCookies: config.secureCookies,
+		trustForwardedHeaders: config.trustForwardedHeaders,
+		frontDoorApp: options.frontDoorApp,
+		supervisor,
+		// W2-6 wall A: topics, session text and the N7 sweep read tenants with their secret.
+		tenantFetch: (tenantId, path) => supervisor.tenantFetch(tenantId, path),
+		// W2-7: the real pause and unpause (fresh count after unpause, alert cleared).
+		...(safety ? { pause: safety.controls } : {}),
+		libraryDir: library,
+		clerkSecretKey: config.clerk.secretKey || undefined,
+		anthropic: { apiKey: wiring.anthropicApiKey, ...(options.upstream?.anthropicBaseUrl ? { baseUrl: options.upstream.anthropicBaseUrl } : {}) },
+		// N7, approved by the master 2026-11-08: Haiku labels each ended chat from its title and plan topics only.
+		labelTopics: true,
+		log,
+	});
+
 	// Email reports (W2-10): the report loop and the report pages.
 	const email = startEmailReports({
 		env: options.env,
@@ -192,7 +215,8 @@ export async function startFrontDoor(options: FrontDoorOptions): Promise<FrontDo
 		trustForwardedHeaders: config.trustForwardedHeaders,
 		// W2-6 wall A: every read of a tenant's server carries that tenant's secret.
 		tenantFetch: (tenantId, path, init) => supervisor.tenantFetch(tenantId, path, init),
-		// At the w2-dashboard merge, add: sittings: <frontdoor/study-time's ended-sittings export>.
+		// The one 30-minute rule (frontdoor/study-time): ended study sittings with per-chat seconds.
+		...(db ? { sittings: endedSittingsSource(db) } : {}),
 		...options.email,
 		log,
 	});
@@ -200,6 +224,8 @@ export async function startFrontDoor(options: FrontDoorOptions): Promise<FrontDo
 	const gateway = createGateway({
 		accounts,
 		clerk,
+		admin: dashboard.admin,
+		studentRoutes: dashboard.studentRoutes,
 		supervisor,
 		routePolicy,
 		provision: async (tenantId) => {
@@ -232,6 +258,7 @@ export async function startFrontDoor(options: FrontDoorOptions): Promise<FrontDo
 			closing ??= (async () => {
 				await safety?.close();
 				const stopped = closeServer(server);
+				await dashboard.close();
 				await email.close();
 				await supervisor.stopAll();
 				await stopped;

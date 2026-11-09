@@ -13,6 +13,8 @@
  *   public pages    GET   How it works, Help, /legal/*, robots.txt and
  *                         sitemap.xml come from the front door's app, login
  *                         or not (W2-11, marketing/public-paths.ts)
+ *   /admin/...            the Owner's dashboard (frontdoor/admin): login
+ *                         and Owner role checked there, 403 for anyone else
  *   /               GET   with no login: the landing page, from the front
  *                         door's app. With a login: the tutor, as below.
  *   everything else       needs the login cookie. Without it, /api gets 401
@@ -70,6 +72,10 @@ export interface GatewayDeps {
 	now?: () => number;
 	/** Never given session text or email addresses (cross-cutting req 3). */
 	log?: (message: string) => void;
+	/** W2-9: the front door's own routes for a signed-in student, after the login check: the study-time heartbeat (P3-02) and the session-text switch (P3-04). See admin/wiring.ts. */
+	studentRoutes?: { handles(pathname: string): boolean; handle(req: IncomingMessage, res: ServerResponse, tenantId: string, pathname: string): Promise<void> };
+	/** P3-01: /admin and everything under it (frontdoor/admin). Without it, /admin is 404. */
+	admin?: { handle(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> };
 }
 
 const MAX_FORM_BYTES = 4096;
@@ -238,6 +244,8 @@ export function createGateway(deps: GatewayDeps): (req: IncomingMessage, res: Se
 			setCookie.push(cookie(SESSION_COOKIE, await signSession(current, deps.sessionSecret, now()), SESSION_MAX_AGE_SECONDS));
 		}
 
+		// W2-9: study-time heartbeat (PD1) and the session-text switch, for this login's tenant.
+		if (deps.studentRoutes?.handles(pathname)) return deps.studentRoutes.handle(req, res, current.tenantId, pathname);
 		// W2-6: route blocks and the model lock (gateway/route-guard.ts).
 		const verdict = await guardRoute(req, pathname, deps.routePolicy ?? defaultPolicy);
 		if (verdict.kind === "refuse") return sendJson(res, verdict.status, { error: verdict.message }, setCookie);
@@ -255,10 +263,6 @@ export function createGateway(deps: GatewayDeps): (req: IncomingMessage, res: Se
 			deps.log?.(`tenant ${current.tenantId} could not start: ${(error as Error).message}`);
 			return tutorUnavailable(res, isApi(pathname));
 		}
-		// TODO(P3-02, study time, PD1): log active study time here, since every
-		// request and stream passes this point. Write the upstream chat id
-		// (from /api/chats/<id>/...) into study_time.chat_id (master decision,
-		// 2026-11-08). Outside this package (w1-front-door).
 		passThrough(req, res, { port, path: target, proto: proto(req), setCookie, tenantHeaders, body: verdict.body });
 	}
 
@@ -288,6 +292,8 @@ export function createGateway(deps: GatewayDeps): (req: IncomingMessage, res: Se
 			await deps.frontDoorApp(req, res);
 			return;
 		}
+		// P3-01: the Owner's dashboard (frontdoor/admin checks the login and the role).
+		if (pathname === "/admin" || pathname.startsWith("/admin/")) return deps.admin ? deps.admin.handle(req, res, url) : sendJson(res, 404, { error: "Not found." });
 		return handleTenantRequest(req, res, pathname, target);
 	}
 
