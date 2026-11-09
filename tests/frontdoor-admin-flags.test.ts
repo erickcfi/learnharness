@@ -65,13 +65,13 @@ describe("labeling ended sessions", () => {
 
 	it("waits until the session has ended (30 minutes without study)", async () => {
 		const early = await labelEndedSessions({ db: f.db, tenantFetch: tenantFetchOf(f), classifier: classifier(), now: () => new Date(f.clock.now - 3600_000 + 10 * 60_000) });
-		assert.deepEqual(early, { labeled: 0, nonAviation: 0, skipped: 0 });
+		assert.deepEqual(early, { labeled: 0, nonAviation: 0, unchanged: 0, skipped: 0 });
 		assert.equal(sent.length, 0);
 	});
 
 	it("flags the seeded cooking session, and not the seeded METAR session", async () => {
 		const run = await labelEndedSessions({ db: f.db, tenantFetch: tenantFetchOf(f), classifier: classifier(), now: () => new Date(f.clock.now) });
-		assert.deepEqual(run, { labeled: 2, nonAviation: 1, skipped: 0 });
+		assert.deepEqual(run, { labeled: 2, nonAviation: 1, unchanged: 0, skipped: 0 });
 		const cookLabel = await dbm.getTopicLabel(f.db, cook.tenantId, "chat_cook_1");
 		const metarLabel = await dbm.getTopicLabel(f.db, pilot.tenantId, "chat_metar_1");
 		assert.equal(cookLabel?.isAviation, false);
@@ -93,12 +93,27 @@ describe("labeling ended sessions", () => {
 		assert.ok(f.tenantHits.every(([, p]) => !p.endsWith("/markdown")), "session text was never fetched");
 	});
 
-	it("labels each session once, until it is studied again", async () => {
+	it("labels each chat once, and again only when its title or plan topics change", async () => {
 		sent.length = 0;
-		assert.equal((await labelEndedSessions({ db: f.db, tenantFetch: tenantFetchOf(f), classifier: classifier(), now: () => new Date(f.clock.now) })).labeled, 0);
+		const sweep = (min: number) => labelEndedSessions({ db: f.db, tenantFetch: tenantFetchOf(f), classifier: classifier(), now: () => new Date(f.clock.now + min * 60_000) });
+		assert.deepEqual(await sweep(0), { labeled: 0, nonAviation: 0, unchanged: 0, skipped: 0 }, "nothing new");
+
 		await studied(cook.tenantId, "chat_cook_1", f.clock.now + 60_000);
-		const run = await labelEndedSessions({ db: f.db, tenantFetch: tenantFetchOf(f), classifier: classifier(), now: () => new Date(f.clock.now + 40 * 60_000) });
-		assert.equal(run.labeled, 1);
+		assert.deepEqual(await sweep(40), { labeled: 0, nonAviation: 0, unchanged: 1, skipped: 0 }, "studied again, same topics: no call");
+		assert.equal(sent.length, 0);
+		assert.equal((await dbm.getTopicLabel(f.db, cook.tenantId, "chat_cook_1"))?.isAviation, false, "the old label stands");
+		assert.deepEqual(await sweep(41), { labeled: 0, nonAviation: 0, unchanged: 0, skipped: 0 }, "not checked again until studied again");
+
+		f.chats.set(cook.tenantId, [{ id: "chat_cook_1", title: "Weather for a cross-country", topics: ["Fronts", "Wind"], markdown: PRIVATE }]);
+		await studied(cook.tenantId, "chat_cook_1", f.clock.now + 50 * 60_000);
+		assert.deepEqual(await sweep(90), { labeled: 1, nonAviation: 0, unchanged: 0, skipped: 0 }, "topics changed: one new call");
+		assert.equal(sent.length, 1);
+		const now = await dbm.getTopicLabel(f.db, cook.tenantId, "chat_cook_1");
+		assert.equal(now?.isAviation, true);
+		assert.equal(now?.topic, "Weather for a cross-country | Fronts; Wind");
+		f.chats.set(cook.tenantId, [{ id: "chat_cook_1", title: "Baking sourdough bread", topics: ["Starter", "Proofing", "Scoring the loaf"], markdown: PRIVATE }]);
+		await studied(cook.tenantId, "chat_cook_1", f.clock.now + 100 * 60_000);
+		await sweep(140);
 	});
 
 	it("shows on the dashboard", async () => {

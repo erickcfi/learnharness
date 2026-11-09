@@ -7,11 +7,13 @@ export { chatIdFromPath, createStudyTimeEndpoint, type StudyTimeEndpoint } from 
 export {
 	activeSecondsBySession,
 	listEndedSessions,
+	listEndedSittings,
 	listSessionStudy,
 	SESSION_END_MINUTES,
 	studyByTenant,
 	type EndedSession,
 	type SessionStudy,
+	type Sitting,
 	type TenantStudy,
 } from "./queries.ts";
 export { createStudyTimeRecorder, type StudyTimeRecorder } from "./recorder.ts";

@@ -71,11 +71,11 @@ Conversion: of the students whose trial has ended, the share with a paid invoice
 
 ## The non-aviation flag (N7)
 
-`flags.ts`. A session has ended when its chat has had no study time for 30 minutes (`study-time/queries.ts`). Then `claude-haiku-5-5` labels it from the session title and plan topics only, never session text, with the front door's own Anthropic key (not metered to the student). The label is stored in `topic_labels` and changes nothing in the tutor. The sweep runs every 5 minutes when `labelTopics` is on in `wiring/front-door.ts`.
+`flags.ts`. A session has ended when its chat has had no study time for 30 minutes (`study-time/queries.ts`). Then `claude-haiku-5-5` labels it from the session title and plan topics only, never session text, with the front door's own Anthropic key (not metered to the student). Each chat is labeled once, and again only when its title or plan topics change (master, 2026-11-08). The label is stored in `topic_labels` and changes nothing in the tutor. The sweep runs every 5 minutes (`labelTopics: true` in `wiring/front-door.ts`).
 
 ## For the merge
 
 - **W2-7 (pause):** pass its functions as `pause` to `createDashboard()` in `wiring/front-door.ts`. The shape is `PauseActions` in `pause.ts`: `pauseTenant(tenantId, "owner", ownerAccountId)` and `unpauseTenant(tenantId, ownerAccountId)`. Until then `databasePauseActions` writes the pause row directly, which the meter already obeys.
 - **W2-6 (isolation):** when tenant servers need their own secret on every request, pass a `tenantFetch` that adds it (see `supervisorTenantFetch` in `tenant-api.ts`).
 - **W2-8 (Stripe):** fill `subscriptions` and `invoices`. Nothing in this folder changes. `billingConnected` turns on by itself once a row exists (or pass it).
-- **W2-10 (email):** `activeSecondsBySession(db, tenantId)` and `listEndedSessions(db, ...)` from `frontdoor/study-time` give per-session study time and the session-end rule.
+- **W2-10 (email):** `listEndedSittings(db, { now, since })` from `frontdoor/study-time` gives the ended study sittings for the after-session email; `activeSecondsBySession(db, tenantId)` gives study time per chat.

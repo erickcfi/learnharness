@@ -156,7 +156,8 @@ export async function startFrontDoor(options: FrontDoorOptions): Promise<FrontDo
 		libraryDir: library,
 		clerkSecretKey: config.clerk.secretKey || undefined,
 		anthropic: { apiKey: wiring.anthropicApiKey, ...(options.upstream?.anthropicBaseUrl ? { baseUrl: options.upstream.anthropicBaseUrl } : {}) },
-		labelTopics: false,
+		// N7, approved by the master 2026-11-08: Haiku labels each ended chat from its title and plan topics only.
+		labelTopics: true,
 		log,
 	});
 

@@ -35,6 +35,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 			</ServerEventsProvider>
 			{/* Auto-update banner (Wave C): fixed card, Electron-only pushes. */}
 			<UpdateBanner />
+			<script async src="/_frontdoor/activity.js" />{/* North Aero fork: study-time heartbeat (PD1), served by the front door; docs/upstream-changes.md */}
 		</body>
 		</html>
 	);

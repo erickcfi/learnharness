@@ -1,10 +1,14 @@
 /**
  * Reading study time back (P3-02, PD1): per session for the study record and
- * the dashboard, and which sessions have ended.
+ * the dashboard, and which sessions and sittings have ended. This file is
+ * the one home of the 30-minute rule (master decision, 2026-11-08).
  *
- * A session is one upstream chat (chat id). A session has ended when its
- * chat has had no active time for SESSION_END_MINUTES. The non-aviation
- * labels (admin/flags.ts) use this rule; the session-end email can too.
+ * - A session is one upstream chat (chat id). It has ended when its chat has
+ *   had no active time for SESSION_END_MINUTES. The dashboard's session
+ *   counts and the non-aviation labels (admin/flags.ts) use this.
+ * - A sitting is one run of study across any chats, with no gap longer than
+ *   SESSION_END_MINUTES. It has ended when the student has had no active
+ *   time for that long. The after-session email (W2-10) uses this.
  */
 import type { Db } from "../db/index.ts";
 
@@ -94,4 +98,57 @@ export async function listEndedSessions(
 		[cutoff, options.limit ?? 200],
 	);
 	return rows.map((r) => ({ tenantId: String(r.tenant_id), chatId: String(r.chat_id), lastActiveAt: toDate(r.last_at) }));
+}
+
+export interface Sitting {
+	tenantId: string;
+	/** When the sitting's first stretch began. With tenantId, a stable key for "this sitting". */
+	startedAt: Date;
+	/** The sitting's last active moment. */
+	endedAt: Date;
+	activeSeconds: number;
+	/** Upstream chats studied in the sitting, sorted. Time outside any chat has no id here. */
+	chatIds: string[];
+}
+
+/**
+ * Sittings that have ended: runs of study across any chats with no gap
+ * longer than `idleMinutes` (default SESSION_END_MINUTES), whose last active
+ * moment is at least that long before `now`. `since` keeps only sittings
+ * that ended after it (for example the last one already handled).
+ * Oldest first.
+ */
+export async function listEndedSittings(
+	db: Db,
+	options: { now?: Date; since?: Date; idleMinutes?: number; tenantId?: string; limit?: number } = {},
+): Promise<Sitting[]> {
+	const now = options.now ?? new Date();
+	const gapSeconds = (options.idleMinutes ?? SESSION_END_MINUTES) * 60;
+	const cutoff = new Date(now.getTime() - gapSeconds * 1000);
+	const rows = await db.query(
+		`with s as (
+		   select id, tenant_id, chat_id, started_at, last_active_at, active_seconds,
+		          max(last_active_at) over (partition by tenant_id order by started_at, id rows between unbounded preceding and 1 preceding) as prev_end
+		   from study_time where ($4::uuid is null or tenant_id = $4::uuid)
+		 ), g as (
+		   select *, sum(case when prev_end is null or extract(epoch from (started_at - prev_end)) > $1 then 1 else 0 end)
+		             over (partition by tenant_id order by started_at, id) as grp
+		   from s
+		 )
+		 select tenant_id, min(started_at) as started, max(last_active_at) as ended, sum(active_seconds) as secs,
+		        coalesce(string_agg(distinct chat_id, ',' order by chat_id), '') as chats
+		 from g group by tenant_id, grp
+		 having max(last_active_at) <= $2 and max(last_active_at) > $3
+		 order by max(last_active_at) limit $5`,
+		[gapSeconds, cutoff, options.since ?? new Date(0), options.tenantId ?? null, options.limit ?? 500],
+	);
+	return rows.map((r) => ({
+		tenantId: String(r.tenant_id),
+		startedAt: toDate(r.started),
+		endedAt: toDate(r.ended),
+		activeSeconds: num(r.secs),
+		chatIds: String(r.chats ?? "")
+			.split(",")
+			.filter(Boolean),
+	}));
 }

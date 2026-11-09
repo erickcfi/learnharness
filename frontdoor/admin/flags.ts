@@ -10,7 +10,7 @@
  * The call goes straight to Anthropic with the front door's own key: the
  * student did not cause it, so it is not metered to the student.
  */
-import { type Db, saveTopicLabel } from "../db/index.ts";
+import { type Db, getTopicLabel, saveTopicLabel } from "../db/index.ts";
 import { listEndedSessions } from "../study-time/queries.ts";
 import { fetchSessionTopics, type TenantFetch } from "./tenant-api.ts";
 
@@ -83,12 +83,20 @@ export function storedTopic(topic: SessionTopic): string {
 }
 
 export interface LabelRun {
+	/** New labels: Haiku was asked. */
 	labeled: number;
 	nonAviation: number;
+	/** Studied again with the same title and plan topics: the old label stands, no call. */
+	unchanged: number;
 	skipped: number;
 }
 
-/** Label every ended session that has no label since its last study. */
+/**
+ * Label every ended session studied since its last label. Each chat is
+ * labeled once, and again only when its title or plan topics have changed
+ * (master decision, 2026-11-08); otherwise the old label is kept and only
+ * its date moves, so the chat is not checked again until it is studied again.
+ */
 export async function labelEndedSessions(deps: {
 	db: Db;
 	tenantFetch: TenantFetch;
@@ -99,10 +107,16 @@ export async function labelEndedSessions(deps: {
 }): Promise<LabelRun> {
 	const now = deps.now ? deps.now() : new Date();
 	const ended = await listEndedSessions(deps.db, { now, unlabeledOnly: true, limit: deps.limit ?? 50 });
-	const run: LabelRun = { labeled: 0, nonAviation: 0, skipped: 0 };
+	const run: LabelRun = { labeled: 0, nonAviation: 0, unchanged: 0, skipped: 0 };
 	for (const session of ended) {
 		try {
 			const topic = await fetchSessionTopics(deps.tenantFetch, session.tenantId, session.chatId);
+			const previous = await getTopicLabel(deps.db, session.tenantId, session.chatId);
+			if (previous && previous.topic === storedTopic(topic)) {
+				await saveTopicLabel(deps.db, { tenantId: session.tenantId, chatId: session.chatId, topic: previous.topic, isAviation: previous.isAviation, model: previous.model, at: now });
+				run.unchanged += 1;
+				continue;
+			}
 			const label = await deps.classifier.classify(topic);
 			if (!label) {
 				run.skipped += 1;

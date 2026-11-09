@@ -12,9 +12,14 @@ The front door cannot see either from requests alone: the tutor keeps one event 
 2. `endpoint.ts`: the gateway calls it after the login check (`studentRoutes` in `gateway/handler.ts`), so a heartbeat always belongs to the tenant in the login cookie. The chat id comes from the path (`/chat/<id>`); anything else counts as study time outside any chat.
 3. `credit.ts`: each heartbeat earns the time since the student's last credited heartbeat, at most 30 seconds. Two open tabs never count twice, and a script beating too fast earns only real time.
 4. `recorder.ts`: writes the seconds to `study_time` with the chat id. A write that fails is kept and added to the next one (up to 6 hours per student and chat). A row the database refuses for good (a deleted tenant) is dropped.
-5. `queries.ts`: reads it back. `activeSecondsBySession(db, tenantId)` is the `activeSecondsBySession` the study record builder takes (`frontdoor/records`). `studyByTenant` feeds the dashboard. `listEndedSessions` gives sessions with no study time for 30 minutes.
+5. `queries.ts`: reads it back. `activeSecondsBySession(db, tenantId)` is the `activeSecondsBySession` the study record builder takes (`frontdoor/records`). `studyByTenant` feeds the dashboard. `listEndedSessions` gives chats with no study time for 30 minutes. `listEndedSittings` gives ended sittings.
 
-**Session:** one upstream chat. **Session count:** chats with study time. **Session end:** 30 minutes with no study time in that chat.
+The script reaches every tutor page through one line in upstream `app/layout.tsx` (logged in `docs/upstream-changes.md`). A test keeps that line and the served path in step.
+
+This folder is the one home of the 30-minute rule (master, 2026-11-08):
+
+- **Session:** one upstream chat. **Session count:** chats with study time. **Session end:** 30 minutes with no study time in that chat. Used by the dashboard and the non-aviation flag.
+- **Sitting:** one run of study across any chats, with no gap over 30 minutes. It has ended after 30 minutes with no study time at all. `listEndedSittings` returns each with its start, end, active seconds and chat ids; `since` skips sittings already handled. Used by the after-session email (W2-10).
 
 ## Known limit
 

@@ -7,7 +7,9 @@
  * per student and stores it per upstream chat id in study_time.
  */
 import assert from "node:assert/strict";
+import * as fs from "node:fs";
 import { createServer, type Server } from "node:http";
+import * as path from "node:path";
 import type { AddressInfo } from "node:net";
 import { after, before, beforeEach, describe, it } from "node:test";
 import * as dbm from "../frontdoor/db/index.ts";
@@ -25,6 +27,7 @@ import {
 	createStudyTimeRecorder,
 	HEARTBEAT_SECONDS,
 	listEndedSessions,
+	listEndedSittings,
 	listSessionStudy,
 	studyByTenant,
 } from "../frontdoor/study-time/index.ts";
@@ -105,6 +108,12 @@ describe("the heartbeat script", () => {
 		assert.match(ACTIVITY_SCRIPT, /const WINDOW_MS = 300000;/);
 		assert.match(ACTIVITY_SCRIPT, new RegExp(`const BEAT_MS = ${HEARTBEAT_SECONDS * 1000};`));
 		for (const input of ["keydown", "pointerdown", "touchstart", "wheel", "scroll"]) assert.ok(ACTIVITY_SCRIPT.includes(`"${input}"`), input);
+	});
+	it("is loaded on every tutor page by the one-line fork edit in upstream app/layout.tsx", () => {
+		const layout = fs.readFileSync(path.join(import.meta.dirname, "..", "app", "layout.tsx"), "utf8");
+		const tags = layout.match(/<script[^>]*src="([^"]+)"[^>]*\/>/g) ?? [];
+		assert.equal(tags.length, 1, "exactly one script tag");
+		assert.ok(tags[0]?.includes(`src="${ACTIVITY_SCRIPT_PATH}"`), tags[0]);
 	});
 	it("sends only the page path, never page text", () => {
 		assert.match(ACTIVITY_SCRIPT, /JSON\.stringify\(\{ path: location\.pathname \}\)/);
@@ -206,6 +215,36 @@ describe("study time read back", () => {
 		await dbm.saveTopicLabel(t.db, { tenantId: tid, chatId: "chat_end", topic: "x", isAviation: true, model: "m", at: at(31) });
 		assert.deepEqual(await mine(at(40)), []);
 		assert.deepEqual(await mine(at(40), false), ["chat_end"]);
+	});
+});
+
+describe("sittings: runs of study across chats, for the after-session email (W2-10)", () => {
+	const at = (hhmm: string) => new Date(`2026-11-09T${hhmm}:00Z`);
+	const stretch = (tenantId: string, chatId: string | null, end: string, minutes: number) =>
+		dbm.addActiveStudyTime(t.db, { tenantId, chatId, at: at(end), seconds: minutes * 60, maxGapSeconds: 330 });
+
+	it("joins chats with gaps of 30 minutes or less, and ends a sitting after 30 idle minutes", async () => {
+		const tid = await tenant();
+		const other = await tenant();
+		await stretch(tid, "chat_a", "10:20", 20); // 10:00 to 10:20
+		await stretch(tid, "chat_b", "10:45", 15); // 10:30 to 10:45, a 10-minute gap
+		await stretch(tid, null, "10:50", 5); // the study screen, outside any chat
+		await stretch(tid, "chat_a", "12:10", 10); // 12:00, after a 70-minute gap: a new sitting
+		await stretch(other, "chat_x", "10:40", 40);
+		const mine = (now: string, since?: Date) => listEndedSittings(t.db, { now: at(now), tenantId: tid, ...(since ? { since } : {}) });
+
+		assert.deepEqual(await mine("11:15"), [], "29 idle minutes: still sitting");
+		const first = await mine("11:21");
+		assert.equal(first.length, 1);
+		assert.deepEqual(first[0], { tenantId: tid, startedAt: at("10:00"), endedAt: at("10:50"), activeSeconds: 40 * 60, chatIds: ["chat_a", "chat_b"] });
+		const both = await mine("13:00");
+		assert.deepEqual(both.map((s) => [s.startedAt.toISOString(), s.endedAt.toISOString(), s.activeSeconds]), [
+			[at("10:00").toISOString(), at("10:50").toISOString(), 2400],
+			[at("12:00").toISOString(), at("12:10").toISOString(), 600],
+		]);
+		assert.deepEqual((await mine("13:00", first[0]?.endedAt)).map((s) => s.startedAt.toISOString()), [at("12:00").toISOString()], "since skips sittings already handled");
+		const everyone = await listEndedSittings(t.db, { now: at("13:00") });
+		assert.ok(everyone.some((s) => s.tenantId === other && s.chatIds.join() === "chat_x"));
 	});
 });
 
