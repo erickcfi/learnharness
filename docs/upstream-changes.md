@@ -17,3 +17,4 @@ Every upstream file that the fork changes gets one row here. Merges from upstrea
 | `next.config.ts` | P1-10 | AGPL source link: `LH_SOURCE_COMMIT` carries Railway's `RAILWAY_GIT_COMMIT_SHA` into the build. |
 | `tests/notes-import-route.test.ts` | P1-06 | PD3: the "exactly 25 MiB" upload test now sends two 12.5 MiB files, because one 25 MiB file is over the 20 MB per-file limit. The test still checks the 26 MiB body headroom. |
 | `tests/render-update-settings.test.tsx` | P1-10 | AGPL source link: the build-metadata test also expects the public `LH_SOURCE_COMMIT`. |
+| `package-lock.json` | W1-6 | `tsx` is now a front door dependency, because it runs `frontdoor/server.ts` in production (master decision, 2026-11-08). Its lock entries, and esbuild's, lose the dev-only mark. |

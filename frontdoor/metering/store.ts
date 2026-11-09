@@ -1,9 +1,9 @@
 /**
  * Metering storage (P2-01, P2-02; C3 requirements 4, 6 and 7).
  *
- * The proxy writes through this small interface. The in-memory adapter
- * serves tests and local runs. A Supabase adapter will implement the same
- * interface on the tables from w1-database (PD5).
+ * The proxy writes through this small interface. Production uses the
+ * Supabase adapter (supabase-store.ts), with the DB-outage rules. The
+ * in-memory adapter serves tests and local runs without a database.
  */
 
 /** Token counts for one model call, named as upstream's CallUsage (src/core/contracts.ts). */
@@ -39,8 +39,20 @@ export interface SearchRecord {
 export interface MeteringStore {
 	recordCall(call: CallRecord): Promise<void>;
 	recordSearch(search: SearchRecord): Promise<void>;
-	/** A paused tenant's calls and searches are refused (C3 requirement 6). */
+	/** A paused tenant's calls and searches are refused (C3 requirement 6).
+	 *  Throws MeteringUnavailableError when the pause cannot be checked. */
 	isPaused(tenantId: string): Promise<boolean>;
+}
+
+/** What a student sees when the meter cannot check their pause or keep their usage. */
+export const UNAVAILABLE_MESSAGE = "Usage tracking is briefly unavailable. Try again in a minute.";
+
+/** The meter cannot check a pause or keep more usage rows, so the call is refused (fails closed). */
+export class MeteringUnavailableError extends Error {
+	constructor(reason: string) {
+		super(`metering unavailable: ${reason}`);
+		this.name = "MeteringUnavailableError";
+	}
 }
 
 /** The in-memory adapter, with reads and a pause switch for tests and local runs. */

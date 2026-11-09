@@ -5,9 +5,9 @@
  * tenant. An account gets a tenant only after its 18+ tick is saved, with
  * its date (Owner, 2026-11-08).
  *
- * The front door talks to the AccountStore interface only. The in-memory
- * store below is the stand-in until w1-database's Supabase tables arrive;
- * that adapter implements the same three methods.
+ * The front door talks to the AccountStore interface only. Production uses
+ * the Supabase store (supabase-accounts.ts). The in-memory store below
+ * serves tests and local runs without SUPABASE_DB_URL.
  */
 import { createHash } from "node:crypto";
 

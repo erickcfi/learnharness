@@ -3,49 +3,34 @@
  *
  * Run: `npm run start -w frontdoor` after `npm run build` (upstream),
  * `node scripts/build-server.mjs`, and `npm run build -w frontdoor`.
- * Node runs this TypeScript file directly (type stripping), so files it
- * imports use only erasable TypeScript and `.ts` import paths.
+ * tsx runs this file (master decision, 2026-11-08): the meter prices calls
+ * with upstream's src/server/pricing.ts, whose imports use TypeScript that
+ * plain Node cannot strip.
  *
- * Next.js serves only the front door's own pages under /account. Every
- * other request goes through the gateway to the student's own LearnHarness
- * server (gateway/handler.ts).
- *
- * WIRING POINTS for the other wave 1 packages are marked below. Each is
- * filled in after its branch merges.
+ * Order matters:
+ *  1. The log filter, before anything can print (lockdown, cross-cutting req 3).
+ *  2. The start checks (wiring/env.ts), before Next.js or upstream code
+ *     loads, so a bad Railway variable fails the deploy at once.
+ *  3. Next.js, which serves only the front door's own pages under /account.
+ *  4. Everything else (wiring/front-door.ts): database, lockdown, meter,
+ *     tenant servers, and the gateway that passes every other request
+ *     through to the student's own LearnHarness server.
  */
-import { createServer } from "node:http";
-import next from "next";
-import { createClerkGateway } from "./gateway/clerk.ts";
-import { loadConfig } from "./gateway/config.ts";
-import { createGateway } from "./gateway/handler.ts";
-import { runStartupChecks, type StartupCheck } from "./gateway/startup-checks.ts";
-import { InMemoryAccountStore } from "./tenants/accounts.ts";
-import { provisionTenant } from "./tenants/provisioning.ts";
-import { NO_FILE_ACCESS_SECTION } from "./tenants/settings-template.ts";
-import { TenantSupervisor } from "./tenants/supervisor.ts";
+import "./log-hygiene/preload.ts";
+import { preflight } from "./wiring/env.ts";
 
-// WIRING POINT (w1-lockdown): the production safety check (refuse to start
-// when LH_PROVIDER_EVENTS, LH_BACKGROUND_CAPTURE or DEEPGRAM_API_KEY is set).
-const STARTUP_CHECKS: StartupCheck[] = [];
-runStartupChecks(process.env, STARTUP_CHECKS);
-
-const config = loadConfig(process.env);
 const log = (message: string) => console.log(`[frontdoor] ${message}`);
 
-// WIRING POINT (w1-metering): start the meter here, on 127.0.0.1 and its own
-// port, before any tenant server starts:
-//   http.createServer(createMeteringProxy({ store, resolveTenant: passKeyResolver(<FRONTDOOR_PASS_KEY_SECRET>),
-//     anthropic: { apiKey: <ANTHROPIC_API_KEY> }, tavily: { apiKey: <TAVILY_API_KEY> } }).handle).listen(port, "127.0.0.1")
-// The real keys and the pass-key secret are front door variables only. They
-// never reach a tenant: tenant servers get an allowlist (tenants/supervisor.ts).
-
-/** Extra variables for each tenant server, from the packages that need them. */
-function tenantExtraEnv(_tenantId: string): Record<string, string> {
-	return {
-		// WIRING POINT (w1-metering): ...meteringEnvForTenant(tenantId, { passKeySecret, proxyUrl: "http://127.0.0.1:<meter port>" }),
-		// WIRING POINT (w1-lockdown): the library path variable for tenant servers.
-	};
+let config;
+try {
+	({ config } = preflight(process.env));
+} catch (error) {
+	console.error((error as Error).message);
+	process.exit(1);
 }
+
+const { default: next } = await import("next");
+const { startFrontDoor } = await import("./wiring/front-door.ts");
 
 // No `hostname` option: Next.js then names itself "localhost" everywhere. With
 // one, Clerk's middleware rewrite looked cross-origin to Next.js, which tried
@@ -54,47 +39,14 @@ const app = next({ dev: config.dev, dir: import.meta.dirname, port: config.port 
 await app.prepare();
 const handleNext = app.getRequestHandler();
 
-const supervisor = new TenantSupervisor({
-	serverScript: config.tenantServerScript,
-	volumeDir: config.volumeDir,
-	extraEnv: tenantExtraEnv,
-	// WIRING POINT (w1-lockdown): nodeArgs: ["--import", <log filter module>], and onOutput.
-	onExit: (tenantId, code, signal) => log(`tenant ${tenantId} server stopped (code ${code}, signal ${signal})`),
-});
-
-const gateway = createGateway({
-	// WIRING POINT (w1-database): the Supabase AccountStore adapter. Until
-	// then a restart forgets 18+ dates, so students tick the box again.
-	// Every method must be safe to repeat, and two tabs can race on a first login:
-	// - get: getAccountByClerkUserId (ageConfirmedAt, createdAt) plus getTenantByAccountId (tenantId).
-	// - confirmAge: createStudentAccount; on a unique violation (Postgres 23505), read the account again and return it.
-	// - assignTenant: the tenant uuid the database made with the account.
-	accounts: new InMemoryAccountStore(),
-	clerk: createClerkGateway(config.clerk),
-	supervisor,
-	provision: (tenantId) => {
-		// WIRING POINT (w1-lockdown): its FileAccessProvider in place of NO_FILE_ACCESS_SECTION (C5).
-		provisionTenant({ volumeDir: config.volumeDir, tenantId, fileAccess: NO_FILE_ACCESS_SECTION });
-		// WIRING POINT (w1-database): markTenantReady(db, tenantId) after the folder is written.
-		// This callback runs on EVERY sign-in, so call it only while the tenant's status
-		// is 'provisioning' (a 'ready' or 'retention' tenant stays as it is). If two logins
-		// race and it throws, read the tenant again rather than failing the sign-in.
-	},
-	sessionSecret: config.sessionSecret,
-	secureCookies: config.secureCookies,
-	trustForwardedHeaders: config.trustForwardedHeaders,
-	frontDoorApp: (req, res) => handleNext(req, res),
-	log,
-});
-
-const server = createServer(gateway);
-server.listen(config.port, config.listenHost, () => log(`listening on ${config.listenHost}:${config.port}`));
+const frontDoor = await startFrontDoor({ env: process.env, frontDoorApp: (req, res) => handleNext(req, res), log });
 
 for (const signal of ["SIGTERM", "SIGINT"] as const) {
 	process.once(signal, () => {
-		log(`${signal}: stopping tenant servers`);
-		server.close();
-		// WIRING POINT (w1-metering): await the meter's flush() here, so no usage row is lost.
-		void supervisor.stopAll().finally(() => process.exit(0));
+		log(`${signal}: stopping tenant servers and writing usage`);
+		void frontDoor
+			.close()
+			.catch((error: unknown) => log(`shutdown problem: ${(error as Error).message}`))
+			.finally(() => process.exit(0));
 	});
 }
