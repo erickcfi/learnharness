@@ -174,6 +174,8 @@ export function PlansView({ view, plans, trial }: { view: BillingView | null; pl
 				<PlansOn view={view} plans={plans} trial={trial} />
 			)}
 			<p>
+				{/* A plain link on purpose: "/" is the tutor, served by the student's own server, not by this Next.js app. */}
+				{/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
 				<a href="/">Open the tutor</a> · <a href="/help">Help</a> · <a href="/legal/terms">Terms</a>
 			</p>
 		</main>
