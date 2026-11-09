@@ -8,6 +8,8 @@ import { AccessCache } from "./access.ts";
 import { PriceBook } from "./catalog.ts";
 import type { EmailSender, RetentionHooks } from "./hooks.ts";
 import type { StripeApi } from "./stripe-api.ts";
+// At the w2-pause merge: import { trialEmailHash } from "../retention/trial.ts";
+import { trialEmailHash } from "./trial-hash.ts";
 import type { TrialLimits } from "./trial.ts";
 
 export interface BillingCore {
@@ -16,10 +18,11 @@ export interface BillingCore {
 	prices: PriceBook;
 	access: AccessCache;
 	retention: RetentionHooks;
-	/** Null until w2-email's sender is wired: each skipped email is logged (tenant id and kind only). */
+	/** w2-email's sender. Null when email is off: each skipped billing email is logged (tenant id and kind only). */
 	email: EmailSender | null;
 	webhookSecret: string;
-	trialHashKey: string;
+	/** The trial_claims hash of an email (w2-pause's trialEmailHash, keyed with LH_TRIAL_HASH_KEY). */
+	hashEmail: (email: string) => string;
 	/** The site's address for links in emails, for example https://ground.flynorthaero.com. */
 	siteUrl: string;
 	now: () => number;
@@ -33,7 +36,8 @@ export interface BillingCoreOptions {
 	retention: RetentionHooks;
 	email?: EmailSender | null;
 	webhookSecret: string;
-	trialHashKey: string;
+	/** Default: trialEmailHash(email) with process.env. */
+	hashEmail?: (email: string) => string;
 	siteUrl: string;
 	now?: () => number;
 	log?: (line: string) => void;
@@ -52,7 +56,7 @@ export function createBillingCore(o: BillingCoreOptions): BillingCore {
 		retention: o.retention,
 		email: o.email ?? null,
 		webhookSecret: o.webhookSecret,
-		trialHashKey: o.trialHashKey,
+		hashEmail: o.hashEmail ?? ((email) => trialEmailHash(email)),
 		siteUrl: o.siteUrl.replace(/\/+$/, ""),
 		now,
 		log: o.log ?? (() => {}),

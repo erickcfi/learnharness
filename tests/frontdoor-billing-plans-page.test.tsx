@@ -12,6 +12,7 @@ import { describe, it } from "node:test";
 import { parseHTML } from "linkedom";
 import { renderToStaticMarkup } from "react-dom/server";
 import { NOTICE_TEXT, PlansView } from "../frontdoor/app/account/plans/plans-view.tsx";
+import { SUBSCRIBE_AGAIN_ACTION, trialUsedScreen } from "../frontdoor/billing/copy.ts";
 import type { BillingViewOn } from "../frontdoor/billing/view.ts";
 import { type Plan, PLANS, TRIAL } from "../frontdoor/plans/index.ts";
 
@@ -76,12 +77,13 @@ describe("the plans screen", () => {
 	});
 
 	it("active, canceling, past due, unpaid and ended each say what happens next", () => {
-		assert.match(text(view({ status: "active", plan: "annual", renewsAt: "2027-11-09T00:00:00.000Z", canManageBilling: true })), /Your plan: Annual\. It renews on November 9, 2027\./);
+		// Dates are school time (America/Los_Angeles): 03:00 UTC on November 10 is November 9 in California.
+		assert.match(text(view({ status: "active", plan: "annual", renewsAt: "2027-11-10T03:00:00.000Z", canManageBilling: true })), /Your plan: Annual\. It renews on November 9, 2027\./);
 		assert.match(text(view({ status: "active", plan: "monthly", tester: true })), /tester, no charge/);
-		assert.match(text(view({ status: "canceling", plan: "monthly", endsAt: "2026-12-16T00:00:00.000Z" })), /Your plan ends on December 16, 2026\. You can study until then\./);
+		assert.match(text(view({ status: "canceling", plan: "monthly", endsAt: "2026-12-16T18:00:00.000Z" })), /Your plan ends on December 16, 2026\. You can study until then\./);
 		assert.match(text(view({ status: "past-due" })), /did not go through/);
 		assert.match(text(view({ status: "unpaid" })), /payments have stopped/);
-		const ended = view({ status: "ended", retentionEndsAt: "2027-03-16T00:00:00.000Z", trialEligible: false });
+		const ended = view({ status: "ended", retentionEndsAt: "2027-03-16T18:00:00.000Z", trialEligible: false });
 		assert.match(text(ended), /until March 16, 2027/);
 		assert.equal(forms(ended).filter((f) => f === "/account/billing/checkout").length, 3);
 	});
@@ -101,7 +103,20 @@ describe("the plans screen", () => {
 		for (const file of fs.readdirSync(dir)) assert.doesNotMatch(fs.readFileSync(path.join(dir, file), "utf8"), /\$\d/, `${file} holds no dollar amount`);
 	});
 
-	it("has no em dash in its words", () => {
+	it("keeps billing's words in one copy file, with no dollar amount and no em dash", () => {
+		const copy = fs.readFileSync(path.join(import.meta.dirname, "..", "frontdoor", "billing", "copy.ts"), "utf8");
+		assert.doesNotMatch(copy, /\$\d/, "no amount in the copy file: prices come from plans/index.ts");
+		assert.equal(copy.includes("—"), false);
 		for (const s of Object.values(NOTICE_TEXT)) assert.equal(s.includes("—"), false);
+		const screen = trialUsedScreen("/account/read-sessions");
+		assert.deepEqual(screen.actions.map((a) => a.href), ["/account/plans", "/account/read-sessions"], "w2-pause's interstitial shape, for the master to wire");
+		assert.deepEqual(SUBSCRIBE_AGAIN_ACTION, { label: "Subscribe again", href: "/account/plans" });
+	});
+
+	it("the tutor's sidebar links to Account (/account/plans), beside Source code (master, 2026-11-08)", () => {
+		const sidebar = fs.readFileSync(path.join(import.meta.dirname, "..", "components", "sidebar.tsx"), "utf8");
+		assert.match(sidebar, /<a href="\/account\/plans" data-testid="account-link"[^>]*>Account<\/a>/);
+		const changes = fs.readFileSync(path.join(import.meta.dirname, "..", "docs", "upstream-changes.md"), "utf8");
+		assert.match(changes, /\| `components\/sidebar\.tsx` \| P4-03 \|/);
 	});
 });

@@ -7,33 +7,19 @@
  * (read 2026-11-08) show no sign-up confirmation email, no receipt for a $0
  * trial invoice, and an "upcoming renewals" email that cannot be limited to
  * annual plans and is not documented to show the price. So the front door
- * sends both, through w2-email's sender (same SES identity, From and
- * Reply-To as the report emails) and w2-email's layout.
+ * sends both, through w2-email's sender and layout, from
+ * billing@ground.flynorthaero.com with Reply-To info@ (master, 2026-11-08).
  *
- * Short sentences. Dates are written in UTC. The Owner approves the wording
- * with the legal documents (T5).
+ * The wording is in billing/copy.ts. Dates in the school's time zone.
  */
 import { type Block, type EmailDocument, renderEmailHtml, renderEmailText } from "../email/layout.ts";
 import type { EmailMessage } from "../email/sender.ts";
-import { CONTACT_EMAIL } from "../marketing/site.ts";
-import { formatUsd, type PlanId, PLANS, TRIAL } from "../plans/index.ts";
+import { type PlanId, PLANS, TRIAL } from "../plans/index.ts";
 import { PLANS_PATH } from "./config.ts";
+import { EMAILS, formatDay, priceLine, TERMS_PATH, usd } from "./copy.ts";
 import { discountedCents } from "./view.ts";
 
 export { discountedCents };
-
-const TERMS_PATH = "/legal/terms";
-
-export function formatDate(date: Date): string {
-	return date.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric", timeZone: "UTC" });
-}
-
-const usd = (cents: number) => formatUsd(Math.round(cents) / 100);
-
-/** "every month", "every 3 months", "every 12 months". */
-export function everyText(months: number): string {
-	return months === 1 ? "every month" : `every ${months} months`;
-}
 
 function planFacts(planId: PlanId): { name: string; months: number; listCents: number } {
 	const plan = PLANS.find((p) => p.id === planId);
@@ -41,34 +27,24 @@ function planFacts(planId: PlanId): { name: string; months: number; listCents: n
 	return { name: plan.name, months: plan.months, listCents: Math.round(plan.priceUsd * 100) };
 }
 
-function priceLine(listCents: number, percentOff: number | null, months: number): string {
-	const each = everyText(months);
-	if (!percentOff) return `${usd(listCents)} ${each}`;
-	return `${usd(discountedCents(listCents, percentOff))} ${each} (${usd(listCents)} less your ${percentOff}% discount)`;
-}
-
 const p = (text: string): Block => ({ kind: "paragraph", text });
 
 function howToCancel(siteUrl: string): Block[] {
-	return [
-		{ kind: "heading", text: "How to cancel" },
-		p(`Sign in at ${siteUrl}${PLANS_PATH} and choose "Manage billing", then "Cancel plan". You can cancel online at any time.`),
-		p("After you cancel, you keep the tutor until the end of the time you paid for."),
-	];
-}
-
-function documentMessage(kind: EmailMessage["kind"], to: string, tenantId: string | undefined, subject: string, doc: EmailDocument): EmailMessage {
-	return { kind, to, subject, text: renderEmailText(doc), html: renderEmailHtml(doc), ...(tenantId ? { tenantId } : {}) };
+	return [{ kind: "heading", text: EMAILS.cancelHeading }, p(EMAILS.cancelSteps(siteUrl)), p(EMAILS.cancelAfter)];
 }
 
 function footer(siteUrl: string): EmailDocument["footer"] {
 	return {
 		links: [
-			{ text: "Plans and billing", href: `${siteUrl}${PLANS_PATH}` },
-			{ text: "Terms", href: `${siteUrl}${TERMS_PATH}` },
+			{ text: EMAILS.footerLinks.plans, href: `${siteUrl}${PLANS_PATH}` },
+			{ text: EMAILS.footerLinks.terms, href: `${siteUrl}${TERMS_PATH}` },
 		],
-		lines: [`Questions: write to ${CONTACT_EMAIL}.`, "North Aero Ground Tutor"],
+		lines: [EMAILS.questions, EMAILS.brand],
 	};
+}
+
+function message(kind: EmailMessage["kind"], to: string, tenantId: string | undefined, subject: string, doc: EmailDocument): EmailMessage {
+	return { kind, from: "billing", to, subject, text: renderEmailText(doc), html: renderEmailHtml(doc), ...(tenantId ? { tenantId } : {}) };
 }
 
 export interface ConfirmationInput {
@@ -90,26 +66,23 @@ export interface ConfirmationInput {
 /** The acknowledgment after sign-up or a plan change (California automatic renewal law). */
 export function confirmationEmail(input: ConfirmationInput): EmailMessage {
 	const plan = planFacts(input.planId);
+	const charge = discountedCents(plan.listCents, input.percentOff);
+	const price = priceLine(plan.listCents, charge, input.percentOff, plan.months);
 	const blocks: Block[] = [];
-	let title: string;
+	let words: { subject: string; title: string };
 	if (input.trialEndsAt) {
-		title = "Your free trial has started";
-		const charge = discountedCents(plan.listCents, input.percentOff);
-		blocks.push(
-			p(`Your trial lasts ${TRIAL.days} days and includes up to ${TRIAL.studyHours} hours of study.`),
-			p(`On ${formatDate(input.trialEndsAt)}, your card will be charged ${usd(charge)} for the ${plan.name} plan, unless you cancel before then.`),
-			p(`After that, your plan renews automatically at ${priceLine(plan.listCents, input.percentOff, plan.months)} until you cancel.`),
-		);
+		words = EMAILS.trial;
+		blocks.push(p(EMAILS.trial.length(TRIAL)), p(EMAILS.trial.charge(formatDay(input.trialEndsAt), charge, plan.name)), p(EMAILS.trial.renews(price)));
 	} else {
-		title = input.reason === "change" ? "Your plan has changed" : "Thank you for subscribing";
-		const rows: { label: string; value: string }[] = [{ label: "Plan", value: `${plan.name}, ${priceLine(plan.listCents, input.percentOff, plan.months)}` }];
-		if (input.chargedTodayCents !== null) rows.push({ label: "Charged today", value: usd(input.chargedTodayCents) });
-		if (input.nextChargeAt) rows.push({ label: "Next charge", value: formatDate(input.nextChargeAt) });
-		blocks.push({ kind: "rows", rows }, p(`Your plan renews automatically ${everyText(plan.months)} until you cancel.`));
+		words = input.reason === "change" ? EMAILS.changed : EMAILS.paid;
+		const rows: { label: string; value: string }[] = [{ label: EMAILS.rows.plan, value: `${plan.name}, ${price}` }];
+		if (input.chargedTodayCents !== null) rows.push({ label: EMAILS.rows.chargedToday, value: usd(input.chargedTodayCents) });
+		if (input.nextChargeAt) rows.push({ label: EMAILS.rows.nextCharge, value: formatDay(input.nextChargeAt) });
+		blocks.push({ kind: "rows", rows }, p(EMAILS.renewsEvery(plan.months)));
 	}
 	blocks.push(...howToCancel(input.siteUrl));
-	const subject = input.trialEndsAt ? "Your North Aero Ground Tutor trial has started" : input.reason === "change" ? "Your North Aero Ground Tutor plan has changed" : "Your North Aero Ground Tutor plan";
-	return documentMessage("billing-confirmation", input.to, input.tenantId, subject, { title, preheader: blocks[0]?.kind === "paragraph" ? blocks[0].text : title, blocks, footer: footer(input.siteUrl) });
+	const preheader = blocks[0]?.kind === "paragraph" ? blocks[0].text : words.title;
+	return message("billing-confirmation", input.to, input.tenantId, words.subject, { title: words.title, preheader, blocks, footer: footer(input.siteUrl) });
 }
 
 export interface RenewalNoticeInput {
@@ -124,13 +97,8 @@ export interface RenewalNoticeInput {
 
 /** The notice 15 to 45 days before a plan of a year or longer renews (California automatic renewal law). */
 export function renewalNoticeEmail(input: RenewalNoticeInput): EmailMessage {
-	const date = formatDate(input.renewsAt);
-	const first = `Your North Aero Ground Tutor plan renews automatically on ${date}.`;
-	const blocks: Block[] = [
-		p(first),
-		p(`On that day your card will be charged ${usd(input.amountCents)} for the next ${input.months} months. If you want to keep studying, you need to do nothing.`),
-		p("To stop the renewal, cancel before that date."),
-		...howToCancel(input.siteUrl),
-	];
-	return documentMessage("annual-renewal-notice", input.to, input.tenantId, `Your plan renews on ${date}`, { title: "Your plan renews soon", preheader: first, blocks, footer: footer(input.siteUrl) });
+	const on = formatDay(input.renewsAt);
+	const first = EMAILS.renewal.first(on);
+	const blocks: Block[] = [p(first), p(EMAILS.renewal.charge(input.amountCents, input.months)), p(EMAILS.renewal.stop), ...howToCancel(input.siteUrl)];
+	return message("annual-renewal-notice", input.to, input.tenantId, EMAILS.renewal.subject(on), { title: EMAILS.renewal.title, preheader: first, blocks, footer: footer(input.siteUrl) });
 }

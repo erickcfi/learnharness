@@ -9,6 +9,7 @@ import type { AddressInfo } from "node:net";
 import { STUDENT_COUPON_ID, TESTER_COUPON_ID, WEBHOOK_PATH } from "../frontdoor/billing/config.ts";
 import { type BillingCore, createBillingCore } from "../frontdoor/billing/core.ts";
 import { createBillingHook } from "../frontdoor/billing/gateway-hook.ts";
+import { trialEmailHash } from "../frontdoor/billing/trial-hash.ts";
 import type { RetentionHooks } from "../frontdoor/billing/hooks.ts";
 import { applySetup, planSetup } from "../frontdoor/billing/setup.ts";
 import { type CheckoutCompletion, type StandInOptions, StripeStandIn } from "../frontdoor/billing/testing.ts";
@@ -47,6 +48,8 @@ export interface Harness {
 	core: BillingCore;
 	email: MemoryEmailSender;
 	retentionCalls: { kind: "start" | "end"; tenantId: string; at?: Date }[];
+	/** The next startRetention throws once (tests the retry). */
+	retentionFailNext: boolean;
 	tenantHits: { method: string; url: string; headers: IncomingHttpHeaders }[];
 	base: string;
 	student(name: string, email?: string): Promise<Student>;
@@ -74,14 +77,19 @@ export async function startHarness(options: { standIn?: Partial<StandInOptions>;
 
 	const email = new MemoryEmailSender();
 	const retentionCalls: Harness["retentionCalls"] = [];
+	// Like w2-pause's retention(): its own database handle, so it must run after the webhook's transaction.
 	const retention: RetentionHooks = {
-		async startRetention(tenantId, at, tx) {
+		async startRetention(tenantId, at) {
+			if (h.retentionFailNext) {
+				h.retentionFailNext = false;
+				throw new Error("stand-in retention failure");
+			}
 			retentionCalls.push({ kind: "start", tenantId, at });
-			await dbm.startRetention(tx ?? t.db, tenantId, at);
+			return dbm.startRetention(t.db, tenantId, at);
 		},
-		async endRetention(tenantId, tx) {
+		async endRetention(tenantId) {
 			retentionCalls.push({ kind: "end", tenantId });
-			await dbm.endRetention(tx ?? t.db, tenantId);
+			return dbm.endRetention(t.db, tenantId);
 		},
 	};
 	const core = createBillingCore({
@@ -90,7 +98,7 @@ export async function startHarness(options: { standIn?: Partial<StandInOptions>;
 		retention,
 		email,
 		webhookSecret: WHSEC,
-		trialHashKey: HASH_KEY,
+		hashEmail: (address) => trialEmailHash(address, { LH_TRIAL_HASH_KEY: HASH_KEY }),
 		siteUrl: "https://ground.test",
 		now: () => stripe.now(),
 		accessTtlMs: 0,
@@ -138,6 +146,7 @@ export async function startHarness(options: { standIn?: Partial<StandInOptions>;
 		core,
 		email,
 		retentionCalls,
+		retentionFailNext: false,
 		tenantHits,
 		base,
 		async student(name, address = `${name}@example.com`) {

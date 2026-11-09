@@ -12,6 +12,7 @@ import { siteUrlFrom } from "../frontdoor/billing/core.ts";
 import { confirmationEmail, discountedCents, renewalNoticeEmail } from "../frontdoor/billing/emails.ts";
 import { tenantBilling, trialConversion } from "../frontdoor/billing/reporting.ts";
 import * as dbm from "../frontdoor/db/index.ts";
+import { sesSendEmailInput } from "../frontdoor/email/sender.ts";
 import { STARTUP_CHECKS } from "../frontdoor/wiring/env.ts";
 import { type Harness, startHarness, STUDENT_CODE, TESTER_CODE, WHSEC } from "./frontdoor-billing-harness.ts";
 
@@ -111,6 +112,22 @@ describe("idempotence and order (C2 req 9)", () => {
 		assert.equal((await dbm.getCurrentSubscription(h.db, tenantId))?.status, "trialing");
 	});
 
+	it("starts retention after the event commits; if that fails, the event is forgotten and Stripe's retry starts it", async () => {
+		const s = await h.student("retention-retry");
+		const { subscriptionId } = await h.subscribe(s, { card: card("retention-retry") });
+		await h.stripe.subscriptions.cancel(subscriptionId);
+		const deleted = h.stripe.takeEvents().find((e) => e.type === "customer.subscription.deleted") as Stripe.Event;
+		h.retentionFailNext = true;
+		const first = h.stripe.sign(deleted);
+		assert.equal((await post(first.payload, first.header)).status, 500);
+		assert.equal((await h.db.query("select id from stripe_events where id = $1", [deleted.id])).length, 0, "forgotten, so the retry runs");
+		assert.equal((await dbm.getTenant(h.db, s.tenantId))?.status, "ready");
+		const retry = h.stripe.sign(deleted);
+		assert.equal((await post(retry.payload, retry.header)).status, 200);
+		assert.equal((await dbm.getTenant(h.db, s.tenantId))?.status, "retention");
+		assert.equal(h.retentionCalls.filter((c) => c.tenantId === s.tenantId && c.kind === "start").length, 1);
+	});
+
 	it("ignores events for customers it does not know, and event types it does not use", async () => {
 		const stranger = await h.stripe.customers.create({ email: "stranger@example.com" });
 		void stranger;
@@ -187,40 +204,61 @@ describe("the annual renewal notice (California automatic renewal law)", () => {
 		}
 	});
 
-	it("words the emails with plans/index.ts amounts and no em dash", () => {
+	it("words the emails with plans/index.ts amounts, school-time dates, and no em dash", () => {
 		assert.equal(discountedCents(58800, 20), 47040);
 		assert.equal(discountedCents(6900, null), 6900);
-		const start = confirmationEmail({ to: "a@b.c", siteUrl: "https://x", planId: "quarterly", percentOff: null, trialEndsAt: null, nextChargeAt: new Date("2027-02-09T00:00:00Z"), chargedTodayCents: 17900, reason: "start" });
+		const start = confirmationEmail({ to: "a@b.c", siteUrl: "https://x", planId: "quarterly", percentOff: null, trialEndsAt: null, nextChargeAt: new Date("2027-02-09T20:00:00Z"), chargedTodayCents: 17900, reason: "start" });
 		assert.match(start.text, /3 months, \$179 every 3 months/);
 		assert.match(start.text, /Next charge: February 9, 2027/);
-		const notice = renewalNoticeEmail({ to: "a@b.c", siteUrl: "https://x", amountCents: 58800, renewsAt: new Date("2027-11-09T00:00:00Z"), months: 12 });
+		// 03:00 UTC on November 10 is still November 9 in California (America/Los_Angeles).
+		const notice = renewalNoticeEmail({ to: "a@b.c", siteUrl: "https://x", amountCents: 58800, renewsAt: new Date("2027-11-10T03:00:00Z"), months: 12 });
+		assert.equal(notice.subject, "Your plan renews on November 9, 2027");
 		for (const text of [start.text, notice.text, start.subject, notice.subject]) assert.equal(text.includes("—"), false);
+	});
+
+	it("comes from billing@ground.flynorthaero.com with Reply-To info@ (master, 2026-11-08)", () => {
+		const mail = renewalNoticeEmail({ to: "a@b.c", siteUrl: "https://x", amountCents: 58800, renewsAt: new Date("2027-11-09T20:00:00Z"), months: 12 });
+		assert.equal(mail.from, "billing");
+		const input = sesSendEmailInput(mail);
+		assert.equal(input.FromEmailAddress, '"North Aero Ground Tutor" <billing@ground.flynorthaero.com>');
+		assert.deepEqual(input.ReplyToAddresses, ["info@flynorthaero.com"]);
+		assert.equal(sesSendEmailInput({ ...mail, from: undefined }).FromEmailAddress, '"North Aero Ground Tutor" <reports@ground.flynorthaero.com>', "reports keep their address");
+		assert.match(mail.html, /<html/);
 	});
 });
 
 describe("billing's start checks", () => {
 	const prod = { NODE_ENV: "production" };
-	it("requires the three secrets in production unless FRONTDOOR_BILLING=off", () => {
+	const staging = { FRONTDOOR_PUBLIC_URL: "https://staging.example" };
+	it("requires both Stripe secrets in production unless FRONTDOOR_BILLING=off; the trial hash key is w2-pause's check", () => {
 		const problems = billingEnvProblems(prod).join("\n");
-		for (const name of ["STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "LH_TRIAL_HASH_KEY"]) assert.match(problems, new RegExp(name));
-		assert.deepEqual(billingEnvProblems({ ...prod, FRONTDOOR_BILLING: "off" }), []);
+		for (const name of ["STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"]) assert.match(problems, new RegExp(name));
+		assert.doesNotMatch(problems, /LH_TRIAL_HASH_KEY/);
+		assert.deepEqual(billingEnvProblems({ ...prod, ...staging, FRONTDOOR_BILLING: "off" }), []);
 		assert.deepEqual(billingEnvProblems({ NODE_ENV: "development" }), []);
 		assert.ok(STARTUP_CHECKS.includes(assertBillingEnv), "billing's check is in the front door's start checks");
 	});
 
+	it("refuses FRONTDOOR_BILLING=off on the launch address, set or by default (master, 2026-11-08)", () => {
+		for (const env of [{ FRONTDOOR_BILLING: "off" }, { FRONTDOOR_BILLING: "off", FRONTDOOR_PUBLIC_URL: "https://ground.flynorthaero.com/" }, { ...prod, FRONTDOOR_BILLING: "off" }]) {
+			assert.match(billingEnvProblems(env).join("\n"), /FRONTDOOR_BILLING=off is for staging only/);
+		}
+		assert.deepEqual(billingEnvProblems({ ...staging, FRONTDOOR_BILLING: "off" }), []);
+	});
+
 	it("checks the shapes without printing values", () => {
 		const secret = "sentinel-not-a-stripe-key-9c1";
-		const problems = billingEnvProblems({ STRIPE_SECRET_KEY: secret, STRIPE_WEBHOOK_SECRET: secret, LH_TRIAL_HASH_KEY: "short", FRONTDOOR_BILLING: "maybe" }).join("\n");
+		const problems = billingEnvProblems({ STRIPE_SECRET_KEY: secret, STRIPE_WEBHOOK_SECRET: secret, FRONTDOOR_BILLING: "maybe" }).join("\n");
 		assert.match(problems, /STRIPE_SECRET_KEY must be/);
 		assert.match(problems, /STRIPE_WEBHOOK_SECRET must be/);
-		assert.match(problems, /LH_TRIAL_HASH_KEY must be at least 32/);
 		assert.match(problems, /FRONTDOOR_BILLING may only be "off"/);
 		assert.equal(problems.includes(secret), false);
-		assert.deepEqual(billingEnvProblems({ ...prod, STRIPE_SECRET_KEY: "rk_test_abc", STRIPE_WEBHOOK_SECRET: "whsec_abc", LH_TRIAL_HASH_KEY: "k".repeat(32) }), []);
+		assert.deepEqual(billingEnvProblems({ ...prod, STRIPE_SECRET_KEY: "rk_test_abc", STRIPE_WEBHOOK_SECRET: "whsec_abc" }), []);
 	});
 
 	it("loads nothing when billing is off or unset", () => {
-		assert.equal(loadBillingConfig({ FRONTDOOR_BILLING: "off", STRIPE_SECRET_KEY: "sk_test_x", STRIPE_WEBHOOK_SECRET: "whsec_x", LH_TRIAL_HASH_KEY: "k".repeat(32) }), null);
+		assert.equal(loadBillingConfig({ FRONTDOOR_BILLING: "off", STRIPE_SECRET_KEY: "sk_test_x", STRIPE_WEBHOOK_SECRET: "whsec_x" }), null);
+		assert.deepEqual(loadBillingConfig({ STRIPE_SECRET_KEY: "sk_test_x", STRIPE_WEBHOOK_SECRET: "whsec_x" }), { secretKey: "sk_test_x", webhookSecret: "whsec_x" });
 		assert.equal(loadBillingConfig({}), null);
 		assert.equal(siteUrlFrom({ FRONTDOOR_PUBLIC_URL: "https://staging.example/" }), "https://staging.example");
 		assert.equal(siteUrlFrom({}), "https://ground.flynorthaero.com");

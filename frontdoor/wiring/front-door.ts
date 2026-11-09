@@ -30,7 +30,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from "node:net";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { billingOff, loadBillingConfig } from "../billing/config.ts";
+import { BILLING_OFF_WARNING, billingOff, loadBillingConfig } from "../billing/config.ts";
 import { clerkEmailLookup, type EmailLookup } from "../billing/clerk-email.ts";
 import { createBillingCore, siteUrlFrom } from "../billing/core.ts";
 import { type BillingGatewayHook, createBillingHook, createBillingOffHook } from "../billing/gateway-hook.ts";
@@ -197,14 +197,13 @@ export async function startFrontDoor(options: FrontDoorOptions): Promise<FrontDo
 			// The report emails' sender (SES in production when set up). None: each skipped billing email is logged.
 			email: options.billingEmail !== undefined ? options.billingEmail : email.sender,
 			webhookSecret: billingConfig.webhookSecret,
-			trialHashKey: billingConfig.trialHashKey,
 			siteUrl: siteUrlFrom(options.env),
 			log,
 		});
 		billing = createBillingHook(core, { emailFor: options.emailLookup ?? clerkEmailLookup(config.clerk.secretKey) });
 	} else {
 		billing = createBillingOffHook();
-		log(billingOff(options.env) ? "billing off (FRONTDOOR_BILLING=off): no plans screen, no trial gate" : "billing not configured (no Stripe settings or no database): no plans screen, no trial gate");
+		log(billingOff(options.env) ? BILLING_OFF_WARNING : "billing not configured (no Stripe settings or no database): no plans screen, no trial gate");
 	}
 
 	const gateway = createGateway({

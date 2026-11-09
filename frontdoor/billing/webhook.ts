@@ -14,7 +14,10 @@
  *    canceled at once, nothing charged, and the reason is kept in its
  *    metadata (trial_refused) for the plans screen.
  *  - A subscription that really ends starts retention (C1 req 6); one that
- *    starts again during retention ends it.
+ *    starts again during retention ends it. Those calls run after the
+ *    transaction commits (w2-pause writes through its own database handle).
+ *    If one fails, the event is forgotten and Stripe's retry runs it again;
+ *    every write of a subscription event is safe to repeat.
  *  - Billing emails (confirmation, annual renewal notice) are sent inside the
  *    same step: if sending fails, the event fails and Stripe retries it.
  */
@@ -24,7 +27,6 @@ import {
 	type Db,
 	getTenant,
 	getTenantByStripeCustomerId,
-	hashEmailForTrial,
 	isTrialUsed,
 	listSubscriptions,
 	processStripeEventOnce,
@@ -59,21 +61,34 @@ export async function receiveWebhook(core: BillingCore, rawBody: Buffer, signatu
 	} catch {
 		return { status: 400, body: { error: "Invalid signature." } };
 	}
+	const afterCommit: AfterCommit = [];
 	try {
-		const outcome = await processStripeEventOnce(core.db, { id: event.id, type: event.type, createdAt: new Date(event.created * 1000) }, (tx) => applyEvent(core, tx, event));
-		return { status: 200, body: { received: true, ...(outcome === "duplicate" ? { duplicate: true } : {}) } };
+		const outcome = await processStripeEventOnce(core.db, { id: event.id, type: event.type, createdAt: new Date(event.created * 1000) }, (tx) => applyEvent(core, tx, event, afterCommit));
+		if (outcome === "duplicate") return { status: 200, body: { received: true, duplicate: true } };
 	} catch (error) {
 		core.log(`stripe event ${event.id} (${event.type}) failed, Stripe will retry: ${(error as Error).message}`);
 		return { status: 500, body: { error: "Not processed. Stripe will retry." } };
 	}
+	try {
+		for (const step of afterCommit) await step();
+	} catch (error) {
+		// Forget the event so Stripe's retry runs it again (its writes are safe to repeat).
+		await core.db.query("delete from stripe_events where id = $1", [event.id]).catch(() => {});
+		core.log(`stripe event ${event.id} (${event.type}): retention step failed, Stripe will retry: ${(error as Error).message}`);
+		return { status: 500, body: { error: "Not processed. Stripe will retry." } };
+	}
+	return { status: 200, body: { received: true } };
 }
 
-async function applyEvent(core: BillingCore, tx: Db, event: Stripe.Event): Promise<void> {
+/** Steps that run once the event's transaction has committed. */
+type AfterCommit = (() => Promise<unknown>)[];
+
+async function applyEvent(core: BillingCore, tx: Db, event: Stripe.Event, afterCommit: AfterCommit): Promise<void> {
 	const createdAt = new Date(event.created * 1000);
 	const object = event.data.object as unknown as { id?: string; object?: string };
 	if (event.type === "checkout.session.completed") return checkoutCompleted(core, tx, object as Stripe.Checkout.Session, createdAt);
 	if (event.type.startsWith("customer.subscription.") && object.id) {
-		await syncSubscription(core, tx, object.id, createdAt);
+		await syncSubscription(core, tx, object.id, createdAt, afterCommit);
 		return;
 	}
 	if (event.type === "invoice.upcoming") return upcomingRenewal(core, tx, object as Stripe.Invoice);
@@ -126,8 +141,14 @@ async function send(core: BillingCore, tenantId: string, message: EmailMessage):
 /** The address Stripe holds, trimmed and checked, or null. */
 const cleanAddress = (value: string | null | undefined) => normalizeEmailAddress(value);
 
-/** Reads the subscription from Stripe and writes it. Starts or ends retention when it ended or came back. */
-export async function syncSubscription(core: BillingCore, tx: Db, subscriptionId: string, createdAt: Date): Promise<{ tenant: Tenant; sub: Stripe.Subscription } | null> {
+/** Reads the subscription from Stripe and writes it. Plans the retention call (after commit) when it ended or came back. */
+export async function syncSubscription(
+	core: BillingCore,
+	tx: Db,
+	subscriptionId: string,
+	createdAt: Date,
+	afterCommit: AfterCommit,
+): Promise<{ tenant: Tenant; sub: Stripe.Subscription } | null> {
 	const sub = await retrieveSubscription(core.stripe, subscriptionId);
 	let tenant = await tenantForCustomer(tx, idOf(sub.customer));
 	const metaTenant = sub.metadata?.tenant_id;
@@ -142,9 +163,15 @@ export async function syncSubscription(core: BillingCore, tx: Db, subscriptionId
 	const ended = sub.status === "canceled" || sub.status === "incomplete_expired";
 	if (ended && sub.ended_at && trialRefusal(sub) === null && tenant.status !== "retention") {
 		const others = (await listSubscriptions(tx, tenant.id)).filter((s) => s.stripeSubscriptionId !== sub.id && LIVE_STATUSES.has(s.status));
-		if (others.length === 0) await core.retention.startRetention(tenant.id, new Date(sub.ended_at * 1000), tx);
+		const endedAt = new Date(sub.ended_at * 1000);
+		const tenantId = tenant.id;
+		if (others.length === 0) afterCommit.push(() => core.retention.startRetention(tenantId, endedAt));
 	}
-	if (LIVE_STATUSES.has(sub.status) && tenant.status === "retention") await core.retention.endRetention(tenant.id, tx);
+	if (LIVE_STATUSES.has(sub.status) && tenant.status === "retention") {
+		const tenantId = tenant.id;
+		afterCommit.push(() => core.retention.endRetention(tenantId));
+	}
+	afterCommit.push(async () => core.access.forget(tenant.id));
 
 	// A plan change on a live subscription (Buy now): send the new terms (California automatic renewal law).
 	const plan = planOf(sub);
@@ -218,7 +245,7 @@ async function checkoutCompleted(core: BillingCore, tx: Db, session: Stripe.Chec
 	let refused = trialRefusal(sub);
 	if (sub.status === "trialing" && refused === null) {
 		const fingerprint = await cardFingerprint(core.stripe, sub, customerId);
-		const keys = { ...(email ? { emailHash: hashEmailForTrial(email, core.trialHashKey) } : {}), ...(fingerprint ? { cardFingerprint: fingerprint } : {}) };
+		const keys = { ...(email ? { emailHash: core.hashEmail(email) } : {}), ...(fingerprint ? { cardFingerprint: fingerprint } : {}) };
 		if (!keys.emailHash && !keys.cardFingerprint) core.log(`checkout ${session.id}: no email and no card fingerprint, so the one-trial check could not run`);
 		else if (!(await claimTrial(tx, keys))) {
 			refused = keys.cardFingerprint && (await isTrialUsed(tx, { cardFingerprint: keys.cardFingerprint })) ? "card" : "email";

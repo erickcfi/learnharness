@@ -40,14 +40,20 @@ after(async () => {
 async function open(env: Record<string, string>, stripe?: StripeStandIn): Promise<{ fd: FrontDoor; lines: string[] }> {
 	const t = await createTestDb();
 	const lines: string[] = [];
-	const fd = await startFrontDoor({
-		env,
-		db: t.db,
-		frontDoorApp: (_req, res) => res.end("front door page"),
-		clerk: { authenticate: async () => ({ status: "signed-out" }), isSessionActive: async () => true },
-		...(stripe ? { stripe, emailLookup: async () => "student@example.com" } : {}),
-		log: (line) => lines.push(line),
-	});
+	let fd: FrontDoor;
+	try {
+		fd = await startFrontDoor({
+			env,
+			db: t.db,
+			frontDoorApp: (_req, res) => res.end("front door page"),
+			clerk: { authenticate: async () => ({ status: "signed-out" }), isSessionActive: async () => true },
+			...(stripe ? { stripe, emailLookup: async () => "student@example.com" } : {}),
+			log: (line) => lines.push(line),
+		});
+	} catch (error) {
+		await t.close();
+		throw error;
+	}
 	opened.push({ fd, t });
 	return { fd, lines };
 }
@@ -72,10 +78,16 @@ describe("billing in startFrontDoor()", () => {
 		assert.equal((await fetch(`${fd.url}/api/chat`, { method: "POST", body: "{}" })).status, 401);
 	});
 
-	it("with FRONTDOOR_BILLING=off: no webhook, and the plans screen says plans are not available", async () => {
-		const { fd, lines } = await open({ ...BASE_ENV, ...BILLING_ENV, FRONTDOOR_BILLING: "off" });
-		assert.ok(lines.some((l) => l.includes("billing off (FRONTDOOR_BILLING=off)")));
+	it("with FRONTDOOR_BILLING=off on staging: a loud warning at start, no webhook, and the plans screen says plans are not available", async () => {
+		const { fd, lines } = await open({ ...BASE_ENV, ...BILLING_ENV, FRONTDOOR_BILLING: "off", FRONTDOOR_PUBLIC_URL: "https://staging.example" });
+		assert.ok(lines.some((l) => l.startsWith("WARNING: BILLING IS OFF (FRONTDOOR_BILLING=off).")));
 		assert.equal((await fetch(`${fd.url}/account/stripe/webhook`, { method: "POST", body: "{}" })).status, 404);
+	});
+
+	it("refuses to start with FRONTDOOR_BILLING=off on the launch address (set, or by default)", async () => {
+		for (const env of [{ ...BASE_ENV, FRONTDOOR_BILLING: "off" }, { ...BASE_ENV, FRONTDOOR_BILLING: "off", FRONTDOOR_PUBLIC_URL: "https://ground.flynorthaero.com" }]) {
+			await assert.rejects(open(env), /FRONTDOOR_BILLING=off is for staging only/);
+		}
 	});
 
 	it("outside production with no Stripe variables: runs with billing off and says so", async () => {

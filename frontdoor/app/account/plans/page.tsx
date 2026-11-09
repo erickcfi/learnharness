@@ -1,7 +1,8 @@
+import { PLANS_SCREEN } from "../../../billing/copy.ts";
 import { PLANS, TRIAL } from "../../../plans/index.ts";
 import { PlansScreen } from "./plans-screen.tsx";
 
-export const metadata = { title: "Plans | North Aero Ground Tutor" };
+export const metadata = { title: PLANS_SCREEN.title };
 
 const PASSED = ["checkout", "bought", "error", "reason"] as const;
 

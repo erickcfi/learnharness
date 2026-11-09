@@ -25,6 +25,7 @@ import { type Access } from "./access.ts";
 import { billingState, buyNow, openPortal, startCheckout, type ActionResult } from "./actions.ts";
 import { isPlanId } from "./catalog.ts";
 import { BILLING_PREFIX, PLANS_PATH, WEBHOOK_PATH } from "./config.ts";
+import { REFUSALS } from "./copy.ts";
 import type { BillingCore } from "./core.ts";
 import { type BillingView, noticeFromQuery } from "./view.ts";
 import { receiveWebhook } from "./webhook.ts";
@@ -100,13 +101,11 @@ export function refusalMessage(access: Access, origin: string): string {
 	const plans = `${origin}${PLANS_PATH}`;
 	switch (access.state) {
 		case "trial-used":
-			return `Your free trial's study time is used up. Choose a plan to keep studying: ${plans}`;
+			return REFUSALS.trialUsed(plans);
 		case "ended":
-			return access.subscription?.status === "unpaid" || access.subscription?.status === "paused"
-				? `Your last payment did not go through. Update your card under Manage billing: ${plans}`
-				: `Your plan has ended. Choose a plan to study again: ${plans}`;
+			return access.subscription?.status === "unpaid" || access.subscription?.status === "paused" ? REFUSALS.unpaid(plans) : REFUSALS.planEnded(plans);
 		default:
-			return `Choose a plan to start studying: ${plans}`;
+			return REFUSALS.noPlan(plans);
 	}
 }
 

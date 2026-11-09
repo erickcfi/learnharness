@@ -6,6 +6,7 @@
  * Buy now), it asks again every 2 seconds, up to a minute.
  */
 import { useEffect, useState } from "react";
+import { PLANS_SCREEN } from "../../../billing/copy.ts";
 import type { BillingView } from "../../../billing/view.ts";
 import type { Plan, Trial } from "../../../plans/index.ts";
 import { PlansView } from "./plans-view.tsx";
@@ -47,8 +48,8 @@ export function PlansScreen({ query, plans, trial }: { query: string; plans: rea
 	if (failed && !view) {
 		return (
 			<main style={{ maxWidth: 560, padding: 24 }}>
-				<h1>North Aero Ground Tutor</h1>
-				<p>Your plan could not be loaded. Please reload this page in a minute.</p>
+				<h1>{PLANS_SCREEN.brand}</h1>
+				<p>{PLANS_SCREEN.failed}</p>
 			</main>
 		);
 	}

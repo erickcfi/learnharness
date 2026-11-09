@@ -25,13 +25,12 @@ import { type PlanId, TRIAL } from "../plans/index.ts";
 import { accessFor } from "./access.ts";
 import { isPlanId, planById } from "./catalog.ts";
 import { PLANS_PATH, TESTER_COUPON_ID } from "./config.ts";
+import { checkoutTermsText } from "./copy.ts";
 import type { BillingCore } from "./core.ts";
 import { idOf, isCardError } from "./stripe-api.ts";
 import { LIVE_STATUSES, trialRefusal } from "./sync.ts";
 import { trialEligibility, TRIAL_LIMITS } from "./trial.ts";
 import type { BillingNotice, BillingStatus, BillingViewOn } from "./view.ts";
-
-const TERMS_PATH = "/legal/terms";
 
 export type ActionResult = { redirect: string } | { error: "card" | "consent" | "already-subscribed" | "not-trialing" | "unavailable" | "bad-plan" };
 
@@ -43,7 +42,7 @@ export async function startCheckout(core: BillingCore, input: { tenantId: string
 	const current = await getCurrentSubscription(core.db, input.tenantId);
 	if (current && LIVE_STATUSES.has(current.status)) return { error: "already-subscribed" };
 
-	const eligibility = await trialEligibility(core.db, { tenantId: input.tenantId, email: input.email, hashKey: core.trialHashKey });
+	const eligibility = await trialEligibility(core.db, { tenantId: input.tenantId, email: input.email, hashEmail: core.hashEmail });
 	const trial = eligibility.eligible && input.planId === TRIAL.convertsTo;
 	const price = await core.prices.price(input.planId);
 
@@ -53,7 +52,6 @@ export async function startCheckout(core: BillingCore, input: { tenantId: string
 		await setStripeCustomerId(core.db, tenant.id, customerId);
 	}
 	const plan = planById(input.planId);
-	const renews = plan.months === 1 ? "every month" : `every ${plan.months} months`;
 	const session = await core.stripe.checkout.sessions.create({
 		mode: "subscription",
 		customer: customerId,
@@ -64,7 +62,7 @@ export async function startCheckout(core: BillingCore, input: { tenantId: string
 		consent_collection: { terms_of_service: "required" },
 		custom_text: {
 			terms_of_service_acceptance: {
-				message: `I agree to the [Terms](${input.origin}${TERMS_PATH}). My plan renews automatically ${renews} until I cancel. I can cancel online at any time.`,
+				message: checkoutTermsText(input.origin, plan.months),
 			},
 		},
 		subscription_data: {
@@ -184,7 +182,7 @@ export async function billingState(
 			break;
 	}
 	const usage = access.state === "trial-used" ? access.usage : access.state === "open" ? access.usage : null;
-	const trialEligible = status === "none" ? (await trialEligibility(core.db, { tenantId: input.tenantId, email: input.email, hashKey: core.trialHashKey })).eligible : false;
+	const trialEligible = status === "none" ? (await trialEligibility(core.db, { tenantId: input.tenantId, email: input.email, hashEmail: core.hashEmail })).eligible : false;
 	const plan = sub?.plan === "three_month" ? "quarterly" : (sub?.plan ?? null);
 
 	return {

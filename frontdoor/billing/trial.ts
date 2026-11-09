@@ -9,7 +9,7 @@
  *  - The trial ends early at 2 hours of active study (study_time, PD1) or
  *    $10 of model cost (PD2), whichever first. Testers skip this (D14).
  */
-import { type Db, hashEmailForTrial, isTrialUsed, listSubscriptions, modelCostSince, type Subscription, studySecondsSince } from "../db/index.ts";
+import { type Db, isTrialUsed, listSubscriptions, modelCostSince, type Subscription, studySecondsSince } from "../db/index.ts";
 import { TRIAL, TRIAL_COST_CAP_USD } from "../plans/index.ts";
 import { isTesterCoupon } from "./sync.ts";
 
@@ -23,9 +23,9 @@ export const TRIAL_LIMITS: TrialLimits = { studySeconds: TRIAL.studyHours * 3600
 export type TrialEligibility = { eligible: true } | { eligible: false; reason: "email" | "returning" };
 
 /** Whether a new Checkout for this tenant may include the trial. */
-export async function trialEligibility(db: Db, input: { tenantId: string; email: string | null; hashKey: string }): Promise<TrialEligibility> {
+export async function trialEligibility(db: Db, input: { tenantId: string; email: string | null; hashEmail: (email: string) => string }): Promise<TrialEligibility> {
 	if ((await listSubscriptions(db, input.tenantId)).length > 0) return { eligible: false, reason: "returning" };
-	if (input.email && (await isTrialUsed(db, { emailHash: hashEmailForTrial(input.email, input.hashKey) }))) return { eligible: false, reason: "email" };
+	if (input.email && (await isTrialUsed(db, { emailHash: input.hashEmail(input.email) }))) return { eligible: false, reason: "email" };
 	return { eligible: true };
 }
 

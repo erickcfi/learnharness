@@ -15,7 +15,9 @@ Built and tested against a stand-in for Stripe's API (`testing.ts`). No test cal
 | `trial.ts`, `access.ts` | One trial per email and card; the 2-hour / $10 trial gate; what a student may do now |
 | `webhook.ts`, `sync.ts` | Signed, idempotent webhooks that keep `subscriptions` and `invoices` current |
 | `gateway-hook.ts` | What `gateway/handler.ts` calls: the webhook route, the billing routes, the trial gate |
-| `emails.ts`, `hooks.ts` | The sign-up confirmation and annual renewal notice; stand-ins for w2-email's sender and w2-pause's retention |
+| `copy.ts` | Every sentence billing shows or sends a student, for the Owner's review. Dates in the school's time zone (America/Los_Angeles). |
+| `emails.ts` | The sign-up confirmation and annual renewal notice, through w2-email's sender and layout, from `billing@ground.flynorthaero.com` |
+| `hooks.ts`, `trial-hash.ts` | Stand-ins for w2-pause: its retention (`dataSafety.retention()`) and `trialEmailHash` (`retention/trial.ts`) |
 | `reporting.ts` | Plan, status, coupon, revenue and trial-to-paid conversion for the dashboard |
 | `testing.ts` | The Stripe stand-in (tests only) |
 | `../app/account/plans/` | The plans screen |
@@ -46,7 +48,14 @@ The `/account/billing` routes sit behind the same login check as the tutor. Ever
   - Testers (the tester coupon) skip the gate.
 - **Buy now** is one subscription update: `trial_end: now`, the new price, `proration_behavior: always_invoice`, `payment_behavior: pending_if_incomplete`. The same tenant keeps everything.
 - **Ending.** When a subscription really ends, the webhook calls `startRetention(tenantId, endedAt)`. If the student subscribes again during retention, it calls `endRetention`.
-- **Emails.** The sign-up confirmation and plan-change confirmation, and the notice 30 days before an annual plan renews, go through w2-email's `EmailSender`. Each email is sent inside the webhook step, so a failed send makes Stripe retry the event.
+  - These calls run after the event's database transaction commits, because w2-pause's retention writes through its own database handle.
+  - If one fails, the event is forgotten, so Stripe's retry runs it again.
+- **Emails.** These go through w2-email's `EmailSender`:
+  - the sign-up confirmation and the plan-change confirmation;
+  - the notice 30 days before an annual plan renews.
+
+  They come from `billing@ground.flynorthaero.com`, with Reply-To `info@flynorthaero.com`. Each email is sent inside the webhook step, so a failed send makes Stripe retry the event. A permanently bad address is logged and skipped.
+- **The tutor's sidebar** has an "Account" link to `/account/plans`, beside "Source code".
 
 ## Railway variables (test mode first)
 
@@ -54,11 +63,12 @@ The `/account/billing` routes sit behind the same login check as the tutor. Ever
 |---|---|---|
 | `STRIPE_SECRET_KEY` | Stripe's secret key: `sk_test_...` on staging, `sk_live_...` at launch. A restricted key (`rk_...`) also works. It needs write access to Customers, Checkout Sessions, Subscriptions and Customer portal, and read access to Prices, Coupons, Promotion codes, Invoices and Payment methods. | Yes |
 | `STRIPE_WEBHOOK_SECRET` | The webhook endpoint's signing secret (`whsec_...`). Test and live endpoints have different secrets. | Yes |
-| `LH_TRIAL_HASH_KEY` | Keys the one-way hash of trial emails. 32+ random characters, for example `openssl rand -base64 48`. **Never change it**, or earlier trial emails stop matching. | Yes |
-| `FRONTDOOR_PUBLIC_URL` | The site's address for links in billing emails, for example the staging address. Defaults to the first `FRONTDOOR_AUTHORIZED_PARTIES` origin, then `https://ground.flynorthaero.com`. | No |
-| `FRONTDOOR_BILLING` | `off` runs with no Stripe: no plans screen, no trial gate. Only for staging before Stripe test mode is set up. Never at launch. | No |
+| `LH_TRIAL_HASH_KEY` | Keys the one-way hash of trial emails. 32+ random characters, for example `openssl rand -base64 48`. **Never change it**, or earlier trial emails stop matching. Its start check is w2-pause's (`retention/trial.ts`). | Yes |
+| `FRONTDOOR_PUBLIC_URL` | The site's address in email links (reports and billing), for example the staging address. Default `https://ground.flynorthaero.com`. | No |
+| `FRONTDOOR_BILLING` | `off` runs with no Stripe: no plans screen, no trial gate. Only for staging before Stripe test mode is set up. The front door refuses it on the launch address, so `FRONTDOOR_PUBLIC_URL` must be set to the staging address. It also logs a loud warning at start. | No |
+| `SES_REGION`, `SES_ACCESS_KEY_ID`, `SES_SECRET_ACCESS_KEY` | w2-email's SES settings. Billing emails need them at launch: without SES the confirmation and renewal notice are skipped (logged). | Key: yes |
 
-In production, the front door refuses to start without the three secrets unless `FRONTDOOR_BILLING=off` is set.
+In production, the front door refuses to start without both Stripe secrets, unless `FRONTDOOR_BILLING=off` is set (staging only).
 
 ## Stripe Dashboard settings (do these in test mode first, then again in live mode)
 
@@ -88,7 +98,7 @@ In production, the front door refuses to start without the three secrets unless 
    - Customers can update payment methods: on.
    - Invoice history: on.
    - Cancel subscriptions: on, at the end of the billing period, no prorations. Cancellation reasons are optional.
-   - Switch plans: off at launch (decision pending with the master).
+   - Switch plans: off at launch (master, 2026-11-08).
    - Business information: terms and privacy links. Default redirect: `https://<site>/account/plans`.
 6. **Settings > Business > Customer emails**: "Successful payments" on (receipts; Stripe sends none for $0 invoices), and "Refunds" on.
 7. Optional: **Radar > Risk controls > Free trial abuse**. It adds Stripe's own check on repeat trial signups.

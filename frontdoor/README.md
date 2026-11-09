@@ -116,8 +116,8 @@ It sets `NODE_ENV=production` and runs `server.ts` with `tsx`.
 | `FRONTDOOR_PUBLIC_URL` | The site address in email links (reports and billing). Default `https://ground.flynorthaero.com`. | No | Staging only |
 | `STRIPE_SECRET_KEY` | Stripe's secret key (`sk_test_...` on staging). See `billing/README.md`. | Yes | Yes, unless `FRONTDOOR_BILLING=off` |
 | `STRIPE_WEBHOOK_SECRET` | The Stripe webhook endpoint's signing secret (`whsec_...`). | Yes | Yes, unless `FRONTDOOR_BILLING=off` |
-| `LH_TRIAL_HASH_KEY` | Keys the one-way hash of trial emails. 32+ random characters. Never change it. | Yes | Yes, unless `FRONTDOOR_BILLING=off` |
-| `FRONTDOOR_BILLING` | `off`: no Stripe, no plans screen, no trial gate. Staging only, before Stripe test mode is set up. | No | Never at launch |
+| `LH_TRIAL_HASH_KEY` | Keys the one-way hash of trial emails. 32+ random characters. Never change it. Its start check is w2-pause's. | Yes | Yes |
+| `FRONTDOOR_BILLING` | `off`: no Stripe, no plans screen, no trial gate, and a loud warning at start. Staging only, before Stripe test mode is set up. Refused on the launch address: set `FRONTDOOR_PUBLIC_URL` to the staging address. | No | Never at launch |
 | `FRONTDOOR_AUTHORIZED_PARTIES` | The site's origins, comma-separated, for example `https://ground.flynorthaero.com` and the staging address. Clerk logins are accepted only from these. | No | Recommended |
 | `CLERK_JWT_KEY` | Clerk's PEM public key: checks logins without a call to Clerk. | No (public) | No |
 | `FRONTDOOR_VOLUME` | The volume's mount path. Default `/data`. | No | Only if not `/data` |
