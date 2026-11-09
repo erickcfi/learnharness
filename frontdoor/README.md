@@ -36,9 +36,14 @@ Environment variables: see the comment at the top of `gateway/config.ts`.
 
 ## Plug points for other packages
 
+Every plug point is marked `WIRING POINT` in `server.ts`.
+
 | Package | Where | What to plug in |
 |---|---|---|
-| w1-database | `tenants/accounts.ts` | A Supabase `AccountStore` (get, confirmAge, assignTenant). Wire it in `server.ts`. |
-| w1-lockdown | `tenants/settings-template.ts` | A `FileAccessProvider` (library-only restricted mode). Wire it in `server.ts` (`provision`). |
-| w1-lockdown | `tenants/supervisor.ts` | `onOutput`: what tenant server logs may reach the front door's logs (now: dropped). |
-| w1-metering | `tenants/supervisor.ts` | `extraEnv`: variables each tenant server needs, such as the metering proxy's address. |
+| w1-database | `tenants/accounts.ts` | A Supabase `AccountStore` (get, confirmAge, assignTenant), and `markTenantReady` after provisioning. |
+| w1-lockdown | `tenants/settings-template.ts` | A `FileAccessProvider` (library-only restricted mode), passed to `provisionTenant`. |
+| w1-lockdown | `gateway/startup-checks.ts` | The production safety check, added to `STARTUP_CHECKS`. |
+| w1-lockdown | `tenants/supervisor.ts` | `nodeArgs: ["--import", <log filter>]`, `onOutput` (tenant logs are dropped now), and the library path in `tenantExtraEnv`. |
+| w1-metering | `server.ts` | Start the meter on 127.0.0.1, spread `meteringEnvForTenant(...)` in `tenantExtraEnv`, and flush it on shutdown. |
+
+Tenant servers get only `PATH`, `LANG`, `LC_ALL` and `TZ` from the front door's environment, plus their own settings and `tenantExtraEnv`. No front door secret reaches them unless a package adds it there on purpose.

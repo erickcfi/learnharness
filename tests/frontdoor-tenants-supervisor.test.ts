@@ -64,10 +64,24 @@ const FRONT_DOOR_ENV = {
 	ANTHROPIC_API_KEY: "sk-ant-must-not-leak",
 	SUPABASE_SERVICE_ROLE_KEY: "must-not-leak",
 	STRIPE_SECRET_KEY: "sk_test_must_not_leak",
+	TAVILY_API_KEY: "tvly-must-not-leak",
+	DEEPGRAM_API_KEY: "must-not-leak",
 	LH_PROVIDER_EVENTS: "1",
+	LH_BACKGROUND_CAPTURE: "1",
 	LH_DESKTOP_SERVER: "1",
 };
-const SECRET_NAMES = ["CLERK_SECRET_KEY", "FRONTDOOR_SESSION_SECRET", "ANTHROPIC_API_KEY", "SUPABASE_SERVICE_ROLE_KEY", "STRIPE_SECRET_KEY", "LH_PROVIDER_EVENTS", "LH_DESKTOP_SERVER"];
+const SECRET_NAMES = [
+	"CLERK_SECRET_KEY",
+	"FRONTDOOR_SESSION_SECRET",
+	"ANTHROPIC_API_KEY",
+	"SUPABASE_SERVICE_ROLE_KEY",
+	"STRIPE_SECRET_KEY",
+	"TAVILY_API_KEY",
+	"DEEPGRAM_API_KEY",
+	"LH_PROVIDER_EVENTS",
+	"LH_BACKGROUND_CAPTURE",
+	"LH_DESKTOP_SERVER",
+];
 
 const supervisor = new TenantSupervisor({ serverScript, volumeDir: volume, baseEnv: FRONT_DOOR_ENV, startTimeoutMs: 10_000 });
 const accounts = new InMemoryAccountStore();
@@ -201,6 +215,18 @@ describe("tenant servers", () => {
 
 	it("rejects a tenant ID that is not a UUID", async () => {
 		await assert.rejects(supervisor.ensureRunning("../escape"), /tenant id/i);
+	});
+
+	it("loads a module into each tenant server before it starts (Node --import)", async () => {
+		const preload = path.join(work, "preload.mjs");
+		fs.writeFileSync(preload, 'process.env.FD_PRELOADED = "yes";\n');
+		const withImport = new TenantSupervisor({ serverScript, volumeDir: volume, baseEnv: FRONT_DOOR_ENV, nodeArgs: ["--import", preload], startTimeoutMs: 10_000 });
+		const tenantId = "44444444-4444-4444-8444-444444444444";
+		provisionTenant({ volumeDir: volume, tenantId });
+		const port = await withImport.ensureRunning(tenantId);
+		const { env } = (await (await fetch(`http://127.0.0.1:${port}/env`)).json()) as { env: Record<string, string> };
+		assert.equal(env.FD_PRELOADED, "yes");
+		await withImport.stopAll();
 	});
 
 	it("fails clearly when the tenant server cannot start", async () => {

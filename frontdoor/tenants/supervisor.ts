@@ -28,12 +28,16 @@ export interface TenantSupervisorOptions {
 	/** Where PATH and the locale come from. Defaults to process.env. Only
 	 *  PASSED_ENV_KEYS are copied from it. */
 	baseEnv?: Record<string, string | undefined>;
-	/** PLUG POINT for later packages (for example the metering proxy's
-	 *  address, w1-metering). It cannot replace the tenant's own folder,
-	 *  port, or host settings. */
+	/** PLUG POINT for later packages: w1-metering's per-tenant pass key
+	 *  (in place of the real Anthropic and Tavily keys), w1-lockdown's
+	 *  library path. Compose several in server.ts. It cannot replace the
+	 *  tenant's own folder, port, or host settings. */
 	extraEnv?: (tenantId: string) => Record<string, string>;
 	/** Defaults to the Node running the front door. */
 	nodeBinary?: string;
+	/** PLUG POINT for w1-lockdown: Node options placed before the server
+	 *  script, for example ["--import", "<log filter module>"]. */
+	nodeArgs?: string[];
 	/** How long a server may take to answer its first request. Default 30 s. */
 	startTimeoutMs?: number;
 	/** The server's own log output. Default: dropped. Log hygiene (P1-10)
@@ -133,7 +137,7 @@ export class TenantSupervisor {
 	async #start(tenantId: string): Promise<number> {
 		const options = this.#options;
 		const port = await freePort();
-		const child = spawn(options.nodeBinary ?? process.execPath, [options.serverScript], {
+		const child = spawn(options.nodeBinary ?? process.execPath, [...(options.nodeArgs ?? []), options.serverScript], {
 			cwd: path.dirname(options.serverScript),
 			// The cast: Next.js's types mark NODE_ENV required; tenantServerEnv always sets it.
 			env: tenantServerEnv(options, tenantId, port) as NodeJS.ProcessEnv,

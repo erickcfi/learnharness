@@ -9,6 +9,7 @@ import { loadConfig } from "../frontdoor/gateway/config.ts";
 import { parseCookies, stripLoginCookies } from "../frontdoor/gateway/cookies.ts";
 import { safeReturnPath } from "../frontdoor/gateway/return-path.ts";
 import { signAgeConfirmation, signSession, verifyAgeConfirmation, verifySession } from "../frontdoor/gateway/session.ts";
+import { runStartupChecks, type StartupCheck } from "../frontdoor/gateway/startup-checks.ts";
 import { AgeNotConfirmedError, InMemoryAccountStore } from "../frontdoor/tenants/accounts.ts";
 
 const SECRET = new TextEncoder().encode("tokens-test-secret-0123456789abcdefghijk");
@@ -102,6 +103,22 @@ describe("cookies and return paths", () => {
 		assert.equal(safeReturnPath("/account/start", "/"), "/", "outside /account by default");
 		assert.equal(safeReturnPath("/account/start?next=%2F", "/account/sign-up", { within: "/account" }), "/account/start?next=%2F");
 		assert.equal(safeReturnPath("/chat/1", "/account/sign-up", { within: "/account" }), "/account/sign-up");
+	});
+});
+
+describe("startup checks", () => {
+	it("passes when every check passes", () => {
+		runStartupChecks({}, [() => {}]);
+	});
+
+	it("refuses to start, listing every failed check", () => {
+		const refuseCapture: StartupCheck = (env) => {
+			if (env.LH_PROVIDER_EVENTS) throw new Error("LH_PROVIDER_EVENTS is set");
+		};
+		const refuseDictation: StartupCheck = (env) => {
+			if (env.DEEPGRAM_API_KEY) throw new Error("DEEPGRAM_API_KEY is set");
+		};
+		assert.throws(() => runStartupChecks({ LH_PROVIDER_EVENTS: "1", DEEPGRAM_API_KEY: "x" }, [refuseCapture, refuseDictation]), /LH_PROVIDER_EVENTS is set[\s\S]*DEEPGRAM_API_KEY is set/);
 	});
 });
 

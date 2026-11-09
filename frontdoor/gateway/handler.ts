@@ -205,6 +205,10 @@ export function createGateway(deps: GatewayDeps): (req: IncomingMessage, res: Se
 			deps.log?.(`tenant ${current.tenantId} could not start: ${(error as Error).message}`);
 			return tutorUnavailable(res, isApi(pathname));
 		}
+		// TODO(P3-02, study time, PD1): log active study time here, since every
+		// request and stream passes this point. Write the upstream chat id
+		// (from /api/chats/<id>/...) into study_time.chat_id (master decision,
+		// 2026-11-08). Outside this package (w1-front-door).
 		passThrough(req, res, { port, path: target, proto: proto(req), setCookie });
 	}
 
