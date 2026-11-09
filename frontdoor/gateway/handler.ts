@@ -8,6 +8,11 @@
  *                         provisions the tenant, starts its server, and sets
  *                         the front door's login cookie
  *   /account/...          the front door's own Next.js pages (no login needed)
+ *   public pages    GET   How it works, Help, /legal/*, robots.txt and
+ *                         sitemap.xml come from the front door's app, login
+ *                         or not (W2-11, marketing/public-paths.ts)
+ *   /               GET   with no login: the landing page, from the front
+ *                         door's app. With a login: the tutor, as below.
  *   everything else       needs the login cookie. Without it, /api gets 401
  *                         and a page redirects to sign-in. With it, the
  *                         request passes through to the tenant's server.
@@ -16,6 +21,7 @@
  * path is what Next.js or the tenant receives.
  */
 import type { IncomingMessage, OutgoingHttpHeaders, ServerResponse } from "node:http";
+import { isAlwaysPublicPath, LANDING_PATH } from "../marketing/public-paths.ts";
 import type { AccountStore } from "../tenants/accounts.ts";
 import type { ClerkGateway } from "./auth.ts";
 import { clearCookie, parseCookies, serializeCookie } from "./cookies.ts";
@@ -86,6 +92,16 @@ export function createGateway(deps: GatewayDeps): (req: IncomingMessage, res: Se
 	}
 
 	const isApi = (pathname: string) => pathname === "/api" || pathname.startsWith("/api/");
+	const isRead = (req: IncomingMessage) => req.method === "GET" || req.method === "HEAD";
+
+	/** Clerk's own cookie (__client_uat, or a suffixed copy) says the browser is
+	 *  still signed in to Clerk. Sign-in then forwards straight to the tutor. */
+	function signedInToClerk(req: IncomingMessage): boolean {
+		for (const [name, value] of parseCookies(req.headers.cookie)) {
+			if (/^__client_uat(_[A-Za-z0-9-]+)?$/.test(name) && value !== "" && value !== "0") return true;
+		}
+		return false;
+	}
 
 	function signInRequired(req: IncomingMessage, res: ServerResponse, pathname: string, target: string, setCookie: string[] = []): void {
 		if (!isApi(pathname) && (req.method === "GET" || req.method === "HEAD")) {
@@ -180,7 +196,15 @@ export function createGateway(deps: GatewayDeps): (req: IncomingMessage, res: Se
 	/** Everything outside /account: login check, then pass-through. */
 	async function handleTenantRequest(req: IncomingMessage, res: ServerResponse, pathname: string, target: string): Promise<void> {
 		const session = await verifySession(parseCookies(req.headers.cookie).get(SESSION_COOKIE), deps.sessionSecret, now());
-		if (!session) return signInRequired(req, res, pathname, target);
+		if (!session) {
+			// W2-11: a visitor with no login sees the landing page at "/".
+			if (pathname === LANDING_PATH && isRead(req) && !signedInToClerk(req)) {
+				req.url = target;
+				await deps.frontDoorApp(req, res);
+				return;
+			}
+			return signInRequired(req, res, pathname, target);
+		}
 
 		let current = session;
 		const setCookie: string[] = [];
@@ -226,6 +250,12 @@ export function createGateway(deps: GatewayDeps): (req: IncomingMessage, res: Se
 			if (pathname === `${FRONT_DOOR_PREFIX}/start` && (req.method === "GET" || req.method === "HEAD")) return handleStart(req, res, url);
 			// Set before Next.js starts the answer (Next.js custom-server guide).
 			if (pathname === `${FRONT_DOOR_PREFIX}/sign-out`) res.setHeader("Set-Cookie", [clear(SESSION_COOKIE), clear(AGE_COOKIE)]);
+			await deps.frontDoorApp(req, res);
+			return;
+		}
+		// W2-11: the public pages are the front door's, login or not.
+		if (isRead(req) && isAlwaysPublicPath(pathname)) {
+			req.url = target;
 			await deps.frontDoorApp(req, res);
 			return;
 		}
