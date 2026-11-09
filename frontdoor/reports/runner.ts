@@ -1,10 +1,10 @@
 /**
  * The report loop (C6 req 3, P6-03, P6-04). Every few minutes it:
  *
- *  1. Session reports: for each student with them on, finds study sittings
- *     that ended (no activity for 30 minutes), claims each sitting once in
- *     report_sends, builds the email from the student's record, sends it,
- *     and marks it sent.
+ *  1. Session reports: for each student with them on, takes the study
+ *     sittings that ended (30 idle minutes, from EndedSittingsSource) in
+ *     the last 12 hours, claims each sitting once in report_sends, builds
+ *     the email from the student's record, sends it, and marks it sent.
  *  2. Weekly reports: from Monday 08:00 school time, for 48 hours, claims
  *     last week once per student who studied that week, and sends it.
  *
@@ -14,14 +14,14 @@
  * the front door runs. Runs never overlap. Logs carry tenant ids and error
  * names only.
  */
-import { claimReportSend, markReportSent } from "../db/reports.ts";
 import type { Db } from "../db/db.ts";
+import { claimReportSend, markReportSent } from "../db/reports.ts";
 import { describeSendError, type EmailSender } from "../email/sender.ts";
-import type { RecordSource } from "../records/upstream.ts";
 import { buildSessionReport, buildWeeklyReport, reportMessage, type WeekStudy } from "./build.ts";
-import { endedSittings, type EndedSittingOptions, groupSittings, mainChat, stretchWindowStart } from "./sittings.ts";
-import { claimSittingReport, listSessionRecipients, listWeeklyReportRecipients, type Recipient, releaseReportClaim, stretchesActiveSince, stretchesStartedIn } from "./store.ts";
+import { type EndedSittingsSource, mainChat, type ReportableOptions, reportableSittings, reportWindowStart } from "./sittings.ts";
+import { claimSittingReport, listSessionRecipients, listWeeklyReportRecipients, type Recipient, releaseReportClaim, stretchesStartedIn } from "./store.ts";
 import type { StudentDirectory } from "./students.ts";
+import type { TenantRecordReader } from "./tenant-record.ts";
 import { REPORT_TIME_ZONE, weekDueNow } from "./time.ts";
 
 export const REPORT_INTERVAL_MS = 5 * 60_000;
@@ -29,20 +29,19 @@ export const MAX_ATTEMPTS = 3;
 /** A week with less study than this gets no weekly report. */
 export const MIN_WEEKLY_SECONDS = 5 * 60;
 
-/** Reads one tenant's record source from its own server (wiring supplies it). */
-export type TenantRecordReader = (tenantId: string) => Promise<RecordSource>;
-
 export interface ReportRunnerDeps {
 	db: Db;
 	sender: EmailSender;
 	students: StudentDirectory;
+	/** Ended study sittings (frontdoor/study-time's export; a stand-in until merge). */
+	sittings: EndedSittingsSource;
 	readRecord: TenantRecordReader;
 	/** The site address used in links. */
 	publicUrl: string;
 	timeZone?: string;
 	now?: () => Date;
 	log?: (line: string) => void;
-	sittings?: EndedSittingOptions;
+	report?: ReportableOptions;
 }
 
 export interface RunSummary {
@@ -69,6 +68,7 @@ export function createReportRunner(deps: ReportRunnerDeps): ReportRunner {
 	let timer: ReturnType<typeof setInterval> | null = null;
 
 	const exhausted = (key: string) => (attempts.get(key) ?? 0) >= MAX_ATTEMPTS;
+	const links = (r: Recipient) => ({ publicUrl: deps.publicUrl, unsubscribeToken: r.unsubscribeToken });
 
 	async function failed(key: string, sendId: number, tenantId: string, what: string, error: unknown): Promise<void> {
 		const n = (attempts.get(key) ?? 0) + 1;
@@ -80,12 +80,12 @@ export function createReportRunner(deps: ReportRunnerDeps): ReportRunner {
 	async function sendSessionReports(at: Date, summary: RunSummary): Promise<void> {
 		for (const r of await listSessionRecipients(deps.db)) {
 			try {
-				const stretches = await stretchesActiveSince(deps.db, r.tenantId, stretchWindowStart(at, deps.sittings?.lookbackHours));
-				for (const sitting of endedSittings(stretches, at, deps.sittings)) {
+				const ended = await deps.sittings({ tenantId: r.tenantId, endedSince: reportWindowStart(at, deps.report?.lookbackHours), now: at });
+				for (const sitting of reportableSittings(ended, at, deps.report)) {
 					const chatId = mainChat(sitting);
-					const key = `session:${r.tenantId}:${sitting.startedAt.toISOString()}`;
+					const key = `session:${r.tenantId}:${sitting.sittingStartedAt.toISOString()}`;
 					if (!chatId || exhausted(key)) continue;
-					const sendId = await claimSittingReport(deps.db, { tenantId: r.tenantId, sittingStartedAt: sitting.startedAt, chatId });
+					const sendId = await claimSittingReport(deps.db, { tenantId: r.tenantId, sittingStartedAt: sitting.sittingStartedAt, chatId });
 					if (sendId === null) continue;
 					try {
 						const [source, profile] = await Promise.all([deps.readRecord(r.tenantId), deps.students.get(r.tenantId)]);
@@ -119,7 +119,7 @@ export function createReportRunner(deps: ReportRunnerDeps): ReportRunner {
 				if (!send) continue;
 				try {
 					const chats = new Map<string, number>();
-					for (const sitting of groupSittings(stretches)) for (const ch of sitting.chats) chats.set(ch.chatId, (chats.get(ch.chatId) ?? 0) + ch.activeSeconds);
+					for (const s of stretches) if (s.chatId !== null) chats.set(s.chatId, (chats.get(s.chatId) ?? 0) + s.activeSeconds);
 					const study: WeekStudy = { week, totalSeconds, chats: [...chats].map(([chatId, activeSeconds]) => ({ chatId, activeSeconds })) };
 					const [source, profile] = await Promise.all([deps.readRecord(r.tenantId), deps.students.get(r.tenantId)]);
 					const content = buildWeeklyReport({ source, study, student: { name: profile?.name ?? null }, timeZone, builtAt: now() });
@@ -136,8 +136,6 @@ export function createReportRunner(deps: ReportRunnerDeps): ReportRunner {
 			}
 		}
 	}
-
-	const links = (r: Recipient) => ({ publicUrl: deps.publicUrl, unsubscribeToken: r.unsubscribeToken });
 
 	async function pass(): Promise<RunSummary> {
 		const summary: RunSummary = { sessionSent: 0, weeklySent: 0, failed: 0 };

@@ -4,7 +4,7 @@
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { endedSittings, groupSittings, mainChat, type Stretch, stretchWindowStart } from "../frontdoor/reports/sittings.ts";
+import { type EndedSitting, endedOnly, groupSittings, mainChat, reportableSittings, reportWindowStart, sittingSeconds, type Stretch, stretchWindowStart } from "../frontdoor/reports/sittings.ts";
 import { displayDate, localDate, REPORT_TIME_ZONE, weekContaining, weekDueNow, zonedTime } from "../frontdoor/reports/time.ts";
 
 const T0 = Date.parse("2026-11-08T17:00:00Z");
@@ -33,19 +33,26 @@ describe("study sittings", () => {
 		assert.equal(a[0]!.startedAt.toISOString(), at(0).toISOString());
 	});
 
-	it("reports a sitting only after 30 idle minutes, within 12 hours, at 5 minutes or more, and with a tutor session", () => {
-		const s = [stretch("a", 0, 40)];
-		assert.equal(endedSittings(s, at(69)).length, 0, "29 idle minutes: still going");
-		assert.equal(endedSittings(s, at(70)).length, 1, "30 idle minutes: ended");
-		assert.equal(endedSittings(s, at(40 + 12 * 60)).length, 1);
-		assert.equal(endedSittings(s, at(41 + 12 * 60)).length, 0, "older than the lookback");
-		assert.equal(endedSittings([stretch("a", 0, 4)], at(100)).length, 0, "under 5 minutes");
-		assert.equal(endedSittings([stretch(null, 0, 40)], at(100)).length, 0, "no tutor session");
-		assert.equal(endedSittings(s, at(55), { idleMinutes: 10 }).length, 1, "the idle time can be set");
+	it("ends a sitting after 30 idle minutes", () => {
+		const s = groupSittings([stretch("a", 0, 40)]);
+		assert.equal(endedOnly(s, at(69)).length, 0, "29 idle minutes: still going");
+		assert.equal(endedOnly(s, at(70)).length, 1, "30 idle minutes: ended");
+		assert.equal(endedOnly(s, at(55), 10).length, 1, "the idle time can be set");
 	});
 
-	it("reads far enough back to see a long sitting whole", () => {
-		assert.equal(stretchWindowStart(at(0)).toISOString(), new Date(T0 - 36 * 3600_000).toISOString());
+	it("reports an ended sitting only within 12 hours, at 5 minutes or more, and with a tutor session", () => {
+		const ended = (chats: EndedSitting["chats"], endMin = 40): EndedSitting => ({ tenantId: "t", sittingStartedAt: at(0), endedAt: at(endMin), chats });
+		const forty = [{ chatId: "a", activeSeconds: 2400 }];
+		assert.equal(reportableSittings([ended(forty)], at(40 + 12 * 60)).length, 1);
+		assert.equal(reportableSittings([ended(forty)], at(41 + 12 * 60)).length, 0, "older than the lookback");
+		assert.equal(reportableSittings([ended([{ chatId: "a", activeSeconds: 240 }])], at(100)).length, 0, "under 5 minutes");
+		assert.equal(reportableSittings([ended([])], at(100)).length, 0, "no tutor session");
+		assert.equal(sittingSeconds(ended([{ chatId: "a", activeSeconds: 60 }, { chatId: "b", activeSeconds: 30 }])), 90);
+	});
+
+	it("looks 12 hours back for ended sittings, and reads stretches a day further", () => {
+		assert.equal(reportWindowStart(at(0)).toISOString(), new Date(T0 - 12 * 3600_000).toISOString());
+		assert.equal(stretchWindowStart(at(0)).toISOString(), new Date(T0 - 24 * 3600_000).toISOString());
 	});
 });
 

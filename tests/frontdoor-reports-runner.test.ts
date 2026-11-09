@@ -16,6 +16,8 @@ import { REPORT_LABEL } from "../frontdoor/email/copy.ts";
 import { MemoryEmailSender } from "../frontdoor/email/sender.ts";
 import type { RecordSource } from "../frontdoor/records/upstream.ts";
 import { createReportRunner, MAX_ATTEMPTS, type ReportRunnerDeps } from "../frontdoor/reports/runner.ts";
+import type { EndedSittingsSource } from "../frontdoor/reports/sittings.ts";
+import { studyTimeSittings } from "../frontdoor/reports/study-time-stand-in.ts";
 import { MemoryStudentDirectory } from "../frontdoor/reports/students.ts";
 
 const AGE = new Date("2026-10-01T12:00:00Z");
@@ -91,6 +93,7 @@ function harness(over: Partial<ReportRunnerDeps> = {}) {
 		db: t.db,
 		sender,
 		students,
+		sittings: studyTimeSittings(t.db),
 		readRecord: async () => {
 			reads++;
 			return source();
@@ -190,6 +193,37 @@ describe("session-end report (P6-03)", () => {
 		assert.ok(m.text.includes(`Turn off session reports: ${link}`));
 		assert.ok(m.text.includes(`Report settings: ${PUBLIC_URL}/account/reports`));
 		assert.ok(m.html.includes(link.replace("&", "&amp;")));
+	});
+
+	it("takes its sittings from frontdoor/study-time's export shape (the stand-in is replaced at merge)", async () => {
+		const tenant = await readyTenant();
+		await dbm.updateReportSettings(t.db, tenant, { sessionReportEnabled: true, reportEmail: "jane@example.com" });
+		const asked: Array<{ tenantId: string; endedSince: string; now: string }> = [];
+		const sittings: EndedSittingsSource = async (q) => {
+			asked.push({ tenantId: q.tenantId, endedSince: q.endedSince.toISOString(), now: q.now.toISOString() });
+			return q.tenantId === tenant
+				? [
+						{
+							tenantId: tenant,
+							sittingStartedAt: at(0),
+							endedAt: at(50),
+							chats: [
+								{ chatId: "chat-b", activeSeconds: 600 },
+								{ chatId: "chat-a", activeSeconds: 1800 },
+							],
+						},
+					]
+				: [];
+		};
+		const h = harness({ sittings });
+		h.setClock(at(90));
+		await h.runner.runOnce();
+		assert.ok(asked.some((q) => q.tenantId === tenant && q.endedSince === at(90 - 12 * 60).toISOString() && q.now === at(90).toISOString()));
+		const [m] = h.sentTo(tenant);
+		assert.match(m!.text, /Study time: 40 min/);
+		assert.match(m!.text, /\* Airspace\n {2}Study session\. Study time: 10 min[\s\S]*\* Weather basics\n {2}Study session\. Study time: 30 min/);
+		const rows = await sends(tenant);
+		assert.equal(rows[0]!.chat_id, "chat-a", "the chat with the most time");
 	});
 
 	it("leaves the name out when the account has none", async () => {

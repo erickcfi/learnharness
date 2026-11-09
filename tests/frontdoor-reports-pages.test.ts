@@ -210,6 +210,35 @@ describe("report settings page (/account/reports)", () => {
 		assert.match(String(out.headers["set-cookie"]), new RegExp(`^${SESSION_COOKIE}=;`));
 	});
 
+	it("shows and changes only the signed-in student's own settings", async () => {
+		const accounts = new SupabaseAccountStore(t.db);
+		await accounts.confirmAge("user_rp_other", new Date(clock));
+		const other = await accounts.assignTenant("user_rp_other");
+		await dbm.updateReportSettings(t.db, other, { sessionReportEnabled: true, weeklyReportEnabled: true, reportEmail: "other-student@example.com" });
+
+		const cookie = await loginCookie();
+		const page = await call("/account/reports", { headers: { Cookie: cookie } });
+		assert.ok(!page.body.includes("other-student@example.com"), "another student's address never shows");
+		const res = await call(`/account/reports?tenant=${other}`, {
+			method: "POST",
+			headers: { ...FORM, Cookie: cookie, Origin: base },
+			body: form({ email: "mine@example.com", session: "on", tenant: other, tenantId: other, tenant_id: other }),
+		});
+		assert.equal(res.status, 303);
+		assert.equal((await settings()).reportEmail, "mine@example.com");
+		const theirs = await dbm.getReportSettings(t.db, other);
+		assert.deepEqual([theirs.sessionReportEnabled, theirs.weeklyReportEnabled, theirs.reportEmail], [true, true, "other-student@example.com"], "the other student's settings are untouched");
+	});
+
+	it("treats a login cookie not signed by the front door as no login", async () => {
+		const forged = `${SESSION_COOKIE}=${await signSession({ userId: "user_rp", sessionId: "sess_rp", tenantId, checkedAt: clock }, new TextEncoder().encode("not-the-front-door-secret-0123456789abcdef"), clock)}`;
+		const get = await call("/account/reports", { headers: { Cookie: forged } });
+		assert.equal(get.status, 302);
+		const post = await call("/account/reports", { method: "POST", headers: { ...FORM, Cookie: forged, Origin: base }, body: form({ email: "x@example.com", session: "on" }) });
+		assert.equal(post.status, 302);
+		assert.equal((await settings()).sessionReportEnabled, false);
+	});
+
 	it("answers 405 for other methods", async () => {
 		const res = await call("/account/reports", { method: "PUT", headers: { Cookie: await loginCookie() } });
 		assert.equal(res.status, 405);

@@ -9,7 +9,6 @@
  *   SES_REGION             the AWS Region of flynorth's SES, e.g. us-west-2
  *   SES_ACCESS_KEY_ID      an access key for an IAM user that may only send
  *   SES_SECRET_ACCESS_KEY  its secret
- *   OWNER_ALERT_EMAIL      optional: where Owner alerts go (none when unset)
  *   FRONTDOOR_PUBLIC_URL   optional: the site address used in email links,
  *                          default https://ground.flynorthaero.com
  *
@@ -23,7 +22,6 @@
  * missing. Messages name variables, never their values.
  */
 import { CONTACT_EMAIL, SITE_ORIGIN } from "../marketing/site.ts";
-import { isValidEmailAddress } from "./address.ts";
 
 type Env = Readonly<Record<string, string | undefined>>;
 
@@ -49,8 +47,6 @@ export interface EmailConfig {
 	mode: EmailMode;
 	/** Only in mode "ses". */
 	ses?: SesSettings;
-	/** OWNER_ALERT_EMAIL, when set. */
-	ownerAlertEmail?: string;
 	/** The site address in email links, without a trailing slash. */
 	publicUrl: string;
 }
@@ -68,9 +64,6 @@ export function emailEnvProblems(env: Env): string[] {
 	}
 	if (isSet(env, "SES_REGION") && !/^[a-z]{2}(-[a-z]+)+-\d$/.test(env.SES_REGION!.trim())) {
 		problems.push("SES_REGION must be an AWS Region code, for example us-west-2.");
-	}
-	if (isSet(env, "OWNER_ALERT_EMAIL") && !isValidEmailAddress(env.OWNER_ALERT_EMAIL!.trim())) {
-		problems.push("OWNER_ALERT_EMAIL must be one email address.");
 	}
 	if (isSet(env, "FRONTDOOR_PUBLIC_URL")) {
 		const raw = env.FRONTDOOR_PUBLIC_URL!.trim();
@@ -106,7 +99,6 @@ export function loadEmailConfig(env: Env): EmailConfig {
 		...(mode === "ses"
 			? { ses: { region: env.SES_REGION!.trim(), accessKeyId: env.SES_ACCESS_KEY_ID!.trim(), secretAccessKey: env.SES_SECRET_ACCESS_KEY!.trim() } }
 			: {}),
-		...(isSet(env, "OWNER_ALERT_EMAIL") ? { ownerAlertEmail: env.OWNER_ALERT_EMAIL!.trim() } : {}),
 		publicUrl,
 	};
 }

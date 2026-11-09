@@ -19,7 +19,7 @@ import { type Block, type EmailDocument, oneLine, renderEmailHtml, renderEmailTe
 import type { EmailMessage } from "../email/sender.ts";
 import { buildStudyRecord, formatDuration, type PlanProgress, type RecordFact, type RecordSession } from "../records/build.ts";
 import type { RecordSource } from "../records/upstream.ts";
-import type { Sitting } from "./sittings.ts";
+import { type EndedSitting, sittingSeconds } from "./sittings.ts";
 import { displayDate, displayShortDate, type ReportWeek } from "./time.ts";
 
 /** At most this many facts in a session email, and in a weekly email. */
@@ -98,11 +98,17 @@ function footer(kind: ReportKind) {
 	};
 }
 
-export function buildSessionReport(input: { source: RecordSource; sitting: Sitting; student: StudentInfo; timeZone: string; builtAt: Date }): ReportContent {
+export function buildSessionReport(input: {
+	source: RecordSource;
+	sitting: Pick<EndedSitting, "sittingStartedAt" | "chats">;
+	student: StudentInfo;
+	timeZone: string;
+	builtAt: Date;
+}): ReportContent {
 	const { source, sitting, student, timeZone, builtAt } = input;
 	const s = reportCopy.session;
-	const date = displayDate(sitting.startedAt, timeZone);
-	const duration = formatDuration(sitting.activeSeconds);
+	const date = displayDate(sitting.sittingStartedAt, timeZone);
+	const duration = formatDuration(sittingSeconds(sitting));
 	const name = student.name ? oneLine(student.name) : null;
 	const seconds = new Map(sitting.chats.map((ch) => [ch.chatId, ch.activeSeconds]));
 	const sessions = recordSessions(
@@ -111,7 +117,7 @@ export function buildSessionReport(input: { source: RecordSource; sitting: Sitti
 		timeZone,
 		builtAt,
 	);
-	const facts = factsLearned(source, new Set(sitting.chats.map((ch) => ch.chatId)), sitting.startedAt, builtAt);
+	const facts = factsLearned(source, new Set(sitting.chats.map((ch) => ch.chatId)), sitting.sittingStartedAt, builtAt);
 	const f = footer("session");
 	const doc: EmailDocument = {
 		title: s.title,
@@ -130,7 +136,7 @@ export function buildSessionReport(input: { source: RecordSource; sitting: Sitti
 		],
 		footer: { links: [], lines: f.lines },
 	};
-	return { kind: "session", subject: s.subject(displayShortDate(sitting.startedAt, timeZone), name), doc };
+	return { kind: "session", subject: s.subject(displayShortDate(sitting.sittingStartedAt, timeZone), name), doc };
 }
 
 export interface WeekStudy {

@@ -58,21 +58,6 @@ export const reportCopy = {
 		why: `Sent because weekly reports are turned on for this ${BRAND_NAME} account.`,
 		unsubscribeLink: "Turn off weekly reports",
 	},
-	ownerAlert: {
-		subject: (kind: "cost-alert" | "autopause", tenantShort: string, threshold: string) =>
-			kind === "autopause" ? `Autopause: student ${tenantShort} paused at ${threshold}` : `Cost alert: student ${tenantShort} passed ${threshold}`,
-		title: (kind: "cost-alert" | "autopause") => (kind === "autopause" ? "A student was paused" : "Cost alert"),
-		explain: (kind: "cost-alert" | "autopause") =>
-			kind === "autopause"
-				? "This student's model cost passed the autopause level. The tutor is paused for them. Billing goes on. You can unpause them on the dashboard."
-				: "This student's model cost passed the alert level. Nothing is paused yet.",
-		tenantRow: "Tenant",
-		costRow: "Model cost, last 30 days",
-		thresholdRow: (kind: "cost-alert" | "autopause") => (kind === "autopause" ? "Autopause level" : "Alert level"),
-		timeRow: "Time",
-		dashboardLink: "Open the dashboard",
-		why: `Sent to the Owner alert address of the ${BRAND_NAME} (OWNER_ALERT_EMAIL).`,
-	},
 } as const;
 
 export const settingsCopy = {

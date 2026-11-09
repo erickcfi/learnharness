@@ -18,7 +18,7 @@ import { SendEmailCommand, SESv2Client } from "@aws-sdk/client-sesv2";
 import { isValidEmailAddress } from "./address.ts";
 import { EMAIL_FROM_ADDRESS, EMAIL_FROM_NAME, EMAIL_REPLY_TO, SES_CONFIGURATION_SET, type SesSettings } from "./config.ts";
 
-export type EmailKind = "session-report" | "weekly-report" | "owner-alert";
+export type EmailKind = "session-report" | "weekly-report";
 
 export interface EmailMessage {
 	kind: EmailKind;

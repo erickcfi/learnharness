@@ -6,21 +6,29 @@
  *    none when they are not (email off), the in-memory fake outside
  *    production (frontdoor/email/config.ts).
  *  - The report loop: runs every 5 minutes when there is a database and a
- *    sender. It reads each tenant's record from the tenant's own server.
+ *    sender.
  *  - The report pages: /account/reports and /account/unsubscribe.
- *  - sendOwnerAlert: for w2-pause's alerts, to OWNER_ALERT_EMAIL.
+ *
+ * Two inputs the master wires at merge (stand-ins until then):
+ *  - `tenantFetch`: w2-isolation's supervisor.tenantFetch, which adds each
+ *    tenant server's secret. Stand-in: tenantFetchStandIn(ensureRunning).
+ *  - `sittings`: w2-dashboard's frontdoor/study-time "ended sittings"
+ *    export. Stand-in: studyTimeSittings(db).
+ *
+ * No Owner alert email: PRD D15, alerts show on the dashboard only.
  */
 import type { Db } from "../db/db.ts";
-import { loadEmailConfig, type EmailMode } from "../email/config.ts";
+import { type EmailMode, loadEmailConfig } from "../email/config.ts";
 import { senderFor } from "../email/index.ts";
-import { createOwnerAlertSender, type SendOwnerAlert } from "../email/owner-alert.ts";
 import type { EmailSender } from "../email/sender.ts";
 import type { ClerkGateway } from "../gateway/auth.ts";
 import type { AccountStore } from "../tenants/accounts.ts";
 import { createReportPages, type ReportPages } from "./pages.ts";
 import { createReportRunner, type ReportRunner } from "./runner.ts";
+import type { EndedSittingsSource } from "./sittings.ts";
+import { studyTimeSittings } from "./study-time-stand-in.ts";
 import { clerkUsers, createClerkStudentDirectory, type StudentDirectory } from "./students.ts";
-import { createTenantRecordReader } from "./tenant-record.ts";
+import { createTenantRecordReader, type TenantFetch } from "./tenant-record.ts";
 import { REPORT_TIME_ZONE } from "./time.ts";
 
 export interface EmailReportsOptions {
@@ -33,13 +41,10 @@ export interface EmailReportsOptions {
 	sessionSecret: Uint8Array;
 	secureCookies: boolean;
 	trustForwardedHeaders: boolean;
-	/** Starts the tenant's server if needed; resolves to its port. */
-	ensureRunning(tenantId: string): Promise<number>;
-	/**
-	 * Extra headers for reads from a tenant's server. After w2-isolation lands,
-	 * pass the tenant server's own secret header here.
-	 */
-	tenantHeaders?: (tenantId: string) => Record<string, string>;
+	/** Reads a tenant's server (w2-isolation's supervisor.tenantFetch shape). */
+	tenantFetch: TenantFetch;
+	/** Ended study sittings. Default: the stand-in that reads study_time. */
+	sittings?: EndedSittingsSource;
 	/** Tests: a sender instead of the one the variables choose (null: email off). */
 	sender?: EmailSender | null;
 	/** Tests: a directory instead of Clerk. */
@@ -51,7 +56,6 @@ export interface EmailReports {
 	mode: EmailMode;
 	sender: EmailSender | null;
 	reportPages: ReportPages;
-	sendOwnerAlert: SendOwnerAlert;
 	/** Null when there is no database or no sender. */
 	runner: ReportRunner | null;
 	close(): Promise<void>;
@@ -75,7 +79,8 @@ export function startEmailReports(options: EmailReportsOptions): EmailReports {
 					db: options.db,
 					sender,
 					students,
-					readRecord: createTenantRecordReader({ ensureRunning: options.ensureRunning, ...(options.tenantHeaders ? { headers: options.tenantHeaders } : {}) }),
+					sittings: options.sittings ?? studyTimeSittings(options.db),
+					readRecord: createTenantRecordReader(options.tenantFetch),
 					publicUrl: config.publicUrl,
 					timeZone: REPORT_TIME_ZONE,
 					log: options.log,
@@ -98,7 +103,6 @@ export function startEmailReports(options: EmailReportsOptions): EmailReports {
 			emailMode: config.mode,
 			log: options.log,
 		}),
-		sendOwnerAlert: createOwnerAlertSender({ sender, to: config.ownerAlertEmail, publicUrl: config.publicUrl, timeZone: REPORT_TIME_ZONE, log: options.log }),
 		close: async () => {
 			await runner?.stop();
 		},

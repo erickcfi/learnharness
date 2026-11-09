@@ -1,7 +1,7 @@
 /**
  * The sending layer (W2-10; C6 req 3 to 5, N1, PD7): email settings and
  * modes, the SES v2 sender (with a fake SES client: nothing is sent), the
- * in-memory fake, the email look, and the Owner alert.
+ * in-memory fake, and the email look.
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
@@ -11,7 +11,6 @@ import { emailEnvProblems, loadEmailConfig, SES_CONFIGURATION_SET } from "../fro
 import { REPORT_LABEL } from "../frontdoor/email/copy.ts";
 import { senderFor } from "../frontdoor/email/index.ts";
 import { renderEmailHtml, renderEmailText, type EmailDocument } from "../frontdoor/email/layout.ts";
-import { createOwnerAlertSender } from "../frontdoor/email/owner-alert.ts";
 import { createSesSender, describeSendError, type EmailMessage, InvalidEmailMessageError, MemoryEmailSender, type SesClientLike } from "../frontdoor/email/sender.ts";
 
 const SES_ENV = { SES_REGION: "us-west-2", SES_ACCESS_KEY_ID: "AKIAEXAMPLEKEY000000", SES_SECRET_ACCESS_KEY: "example-secret-value-not-real-0000000000" };
@@ -67,18 +66,20 @@ describe("email settings (Railway variables)", () => {
 		assert.throws(() => loadEmailConfig({ NODE_ENV: "production", SES_SECRET_ACCESS_KEY: "x".repeat(40) }), /SES_REGION, SES_ACCESS_KEY_ID are not set/);
 	});
 
-	it("checks the Region, the Owner alert address and the public address", () => {
+	it("checks the Region and the public address", () => {
 		assert.match(emailEnvProblems({ SES_REGION: "Oregon" }).join(), /SES_REGION must be an AWS Region code/);
-		assert.match(emailEnvProblems({ OWNER_ALERT_EMAIL: "erick" }).join(), /OWNER_ALERT_EMAIL must be one email address/);
 		assert.match(emailEnvProblems({ FRONTDOOR_PUBLIC_URL: "https://ground.flynorthaero.com/account" }).join(), /origin only/);
 		assert.match(emailEnvProblems({ NODE_ENV: "production", FRONTDOOR_PUBLIC_URL: "http://ground.flynorthaero.com" }).join(), /https:\/\//);
-		assert.deepEqual(emailEnvProblems({ NODE_ENV: "production", FRONTDOOR_PUBLIC_URL: "https://staging.example.com/", OWNER_ALERT_EMAIL: "owner@example.com" }), []);
+		assert.deepEqual(emailEnvProblems({ NODE_ENV: "production", FRONTDOOR_PUBLIC_URL: "https://staging.example.com/" }), []);
 	});
 
 	it("defaults the link address to the real site and drops a trailing slash", () => {
 		assert.equal(loadEmailConfig({}).publicUrl, "https://ground.flynorthaero.com");
 		assert.equal(loadEmailConfig({ FRONTDOOR_PUBLIC_URL: "https://staging.example.com/" }).publicUrl, "https://staging.example.com");
-		assert.equal(loadEmailConfig({ OWNER_ALERT_EMAIL: " owner@example.com " }).ownerAlertEmail, "owner@example.com");
+	});
+
+	it("has no Owner alert address (D15: alerts show on the dashboard only)", () => {
+		assert.ok(!("ownerAlertEmail" in loadEmailConfig({ OWNER_ALERT_EMAIL: "owner@example.com" })));
 	});
 });
 
@@ -189,43 +190,5 @@ describe("email look", () => {
 		assert.match(text, /- METAR: A routine weather report\./);
 		assert.match(text, /Turn off session reports: https:\/\/x\.example\/account\/unsubscribe\?t=a&k=session/);
 		assert.ok(!text.includes("<td"));
-	});
-});
-
-describe("Owner alert email", () => {
-	const alert = { kind: "autopause" as const, tenantId: "0f8c2c1e-1111-4222-8333-444455556666", costUsd: 89.4, thresholdUsd: 89, at: new Date("2026-11-08T20:00:00Z") };
-	const base = { publicUrl: "https://ground.flynorthaero.com", timeZone: "America/Los_Angeles" };
-
-	it("sends nothing without OWNER_ALERT_EMAIL (D15: dashboard only by default)", async () => {
-		const fake = new MemoryEmailSender();
-		assert.deepEqual(await createOwnerAlertSender({ ...base, sender: fake, to: undefined })(alert), { sent: false, reason: "no-owner-address" });
-		assert.deepEqual(await createOwnerAlertSender({ ...base, sender: null, to: "owner@example.com" })(alert), { sent: false, reason: "email-off" });
-		assert.equal(fake.sent.length, 0);
-	});
-
-	it("sends the tenant id, the amounts, the time and a dashboard link", async () => {
-		const fake = new MemoryEmailSender();
-		const result = await createOwnerAlertSender({ ...base, sender: fake, to: "owner@example.com" })(alert);
-		assert.deepEqual(result, { sent: true, messageId: "memory-1" });
-		const m = fake.sent[0]!;
-		assert.equal(m.kind, "owner-alert");
-		assert.equal(m.to, "owner@example.com");
-		assert.equal(m.subject, "Autopause: student 0f8c2c1e paused at $89");
-		assert.match(m.text, /Tenant: 0f8c2c1e-1111-4222-8333-444455556666/);
-		assert.match(m.text, /Model cost, last 30 days: \$89\.40/);
-		assert.match(m.text, /Autopause level: \$89/);
-		assert.match(m.text, /Nov 8, 2026, 12:00 PM PST/);
-		assert.match(m.text, /Open the dashboard: https:\/\/ground\.flynorthaero\.com\/admin/);
-	});
-
-	it("never throws when sending fails, and logs the error name only", async () => {
-		const fake = new MemoryEmailSender();
-		fake.failNext(Object.assign(new Error("owner@example.com rejected"), { name: "MessageRejected" }));
-		const lines: string[] = [];
-		const result = await createOwnerAlertSender({ ...base, sender: fake, to: "owner@example.com", log: (l) => lines.push(l) })({ ...alert, kind: "cost-alert", thresholdUsd: 60, costUsd: 61 });
-		assert.deepEqual(result, { sent: false, reason: "send-failed" });
-		assert.equal(lines.length, 1);
-		assert.ok(!lines[0]!.includes("owner@example.com"));
-		assert.match(lines[0]!, /MessageRejected/);
 	});
 });

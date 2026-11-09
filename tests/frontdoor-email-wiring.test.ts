@@ -1,7 +1,7 @@
 /**
  * Email reports wired into the front door (W2-10): the start check, the
- * report pages behind the real gateway, the report loop, the Owner alert,
- * and the SES keys staying out of tenant servers.
+ * report pages behind the real gateway, the report loop, no Owner alert
+ * email (D15), and the SES keys staying out of tenant servers.
  */
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
@@ -13,6 +13,7 @@ import { assertEmailEnv } from "../frontdoor/email/config.ts";
 import { MemoryEmailSender } from "../frontdoor/email/sender.ts";
 import { runStartupChecks } from "../frontdoor/gateway/startup-checks.ts";
 import { MemoryStudentDirectory } from "../frontdoor/reports/students.ts";
+import { createTenantRecordReader, type TenantFetch, tenantFetchStandIn } from "../frontdoor/reports/tenant-record.ts";
 import { tenantServerEnv } from "../frontdoor/tenants/supervisor.ts";
 import { STARTUP_CHECKS } from "../frontdoor/wiring/env.ts";
 import type { FrontDoor } from "../frontdoor/wiring/front-door.ts";
@@ -33,7 +34,6 @@ const ENV: Record<string, string> = {
 	SES_REGION: "us-west-2",
 	SES_ACCESS_KEY_ID: "AKIAEXAMPLEWIRING000",
 	SES_SECRET_ACCESS_KEY: SES_SECRET,
-	OWNER_ALERT_EMAIL: "owner@example.com",
 };
 
 let t: TestDb;
@@ -89,12 +89,9 @@ describe("email reports in the running front door", () => {
 		assert.equal(res.status, 401);
 	});
 
-	it("gives w2-pause an Owner alert sender that mails OWNER_ALERT_EMAIL", async () => {
-		const result = await frontDoor.email.sendOwnerAlert({ kind: "cost-alert", tenantId: "00000000-0000-4000-8000-000000000001", costUsd: 60.5, thresholdUsd: 60 });
-		assert.equal(result.sent, true);
-		const m = sender.sent.at(-1);
-		assert.equal(m?.kind, "owner-alert");
-		assert.equal(m?.to, "owner@example.com");
+	it("has no Owner alert email (D15: alerts show on the dashboard only)", () => {
+		assert.ok(!("sendOwnerAlert" in frontDoor.email));
+		assert.equal(sender.sent.length, 0);
 	});
 
 	it("never logs an address or the SES secret", () => {
@@ -105,10 +102,37 @@ describe("email reports in the running front door", () => {
 	});
 });
 
+describe("reading a tenant's record", () => {
+	it("goes through a tenantFetch (w2-isolation's shape) with bare paths and that tenant's id", async () => {
+		const calls: Array<{ tenantId: string; path: string; hasSignal: boolean }> = [];
+		const tenantFetch: TenantFetch = async (tenantId, p, init) => {
+			calls.push({ tenantId, path: p, hasSignal: init?.signal instanceof AbortSignal });
+			const body = p === "/api/chats" ? { chats: [] } : { propositions: [], sessions: {}, fileSources: {} };
+			return new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } });
+		};
+		const source = await createTenantRecordReader(tenantFetch)("tenant-x");
+		assert.deepEqual(source.chats, []);
+		assert.deepEqual(calls, [
+			{ tenantId: "tenant-x", path: "/api/chats", hasSignal: true },
+			{ tenantId: "tenant-x", path: "/api/graph", hasSignal: true },
+		]);
+	});
+
+	it("has a stand-in that calls the tenant's server on 127.0.0.1 until w2-isolation merges", async () => {
+		const urls: string[] = [];
+		const standIn = tenantFetchStandIn(async () => 4123, (async (input: string | URL | Request) => {
+			urls.push(String(input));
+			return new Response("{}");
+		}) as typeof fetch);
+		await standIn("tenant-x", "/api/chats");
+		assert.deepEqual(urls, ["http://127.0.0.1:4123/api/chats"]);
+	});
+});
+
 describe("SES keys stay in the front door", () => {
-	it("never passes an SES variable or the Owner address to a tenant server", () => {
+	it("never passes an SES variable to a tenant server", () => {
 		const env = tenantServerEnv({ serverScript: "server.js", volumeDir: path.join(work, "volume"), baseEnv: ENV }, "00000000-0000-4000-8000-000000000001", 4000);
-		for (const name of ["SES_REGION", "SES_ACCESS_KEY_ID", "SES_SECRET_ACCESS_KEY", "OWNER_ALERT_EMAIL"]) assert.equal(env[name], undefined, name);
+		for (const name of ["SES_REGION", "SES_ACCESS_KEY_ID", "SES_SECRET_ACCESS_KEY", "FRONTDOOR_PUBLIC_URL"]) assert.equal(env[name], undefined, name);
 		assert.ok(!Object.values(env).includes(SES_SECRET));
 	});
 });

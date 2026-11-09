@@ -1,7 +1,7 @@
 /**
  * Email for the North Aero Ground Tutor (C6 req 3 to 5, N1): the sending
- * layer, the look of every email, its wording, and the Owner alert.
- * The reports themselves are in frontdoor/reports/.
+ * layer, the look of every email, and its wording. The reports themselves
+ * are in frontdoor/reports/. (No Owner alert email: D15, dashboard only.)
  */
 export { isValidEmailAddress, normalizeEmailAddress } from "./address.ts";
 export {
@@ -19,7 +19,6 @@ export {
 } from "./config.ts";
 export { BRAND_NAME, REPORT_LABEL, reportCopy, settingsCopy, unsubscribeCopy } from "./copy.ts";
 export { EMAIL_COLORS, escapeHtml, oneLine, renderEmailHtml, renderEmailText, type Block, type EmailDocument, type EmailLink } from "./layout.ts";
-export { createOwnerAlertSender, ownerAlertMessage, type OwnerAlert, type OwnerAlertKind, type OwnerAlertResult, type SendOwnerAlert } from "./owner-alert.ts";
 export {
 	checkEmailMessage,
 	createSesSender,
