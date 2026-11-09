@@ -57,6 +57,18 @@ jobs:
           node-version: "26"
           cache: npm
       - run: npm ci
+      # North Aero fork (docs/upstream-changes.md): GitHub's release downloads
+      # sometimes time out (HTTP 504), which failed this job before any test
+      # ran. Fetch Electron up front, retrying with growing waits.
+      - name: Download Electron (with retries)
+        run: |
+          for attempt in 1 2 3 4 5; do
+            node node_modules/electron/install.js && exit 0
+            echo "Electron download failed (attempt $attempt of 5); trying again in $((attempt * 15)) seconds"
+            sleep $((attempt * 15))
+          done
+          echo "Electron download failed 5 times"
+          exit 1
       - name: Native renderer tests on this OS
         run: npx electron --import tsx --test tests/pdf-native-render.test.ts tests/pdf-ops.test.ts tests/svg-native-render.test.ts tests/browser-service.test.ts
         env:
