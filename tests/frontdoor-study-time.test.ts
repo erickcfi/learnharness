@@ -34,6 +34,7 @@ import {
 } from "../frontdoor/study-time/index.ts";
 import { InMemoryAccountStore } from "../frontdoor/tenants/accounts.ts";
 import { buildStudyRecord } from "../frontdoor/records/index.ts";
+import { type EndedSittingsSource, mainChat, sittingSeconds } from "../frontdoor/reports/sittings.ts";
 
 const AGE = new Date("2026-11-01T12:00:00Z");
 const T0 = Date.parse("2026-11-08T10:00:00Z");
@@ -284,6 +285,13 @@ describe("sittings: runs of study across chats, for the after-session email (W2-
 		], "endedSince includes a sitting that ended exactly then");
 		assert.deepEqual(await source({ tenantId: tid, endedSince: at("09:51"), now: at("11:00") }), []);
 		assert.deepEqual(await source({ tenantId: tid, endedSince: at("09:00"), now: at("10:10") }), [], "not ended yet");
+
+		// The email reports (W2-10) take it as their EndedSittingsSource and pick the chat with the most time.
+		const asReports: EndedSittingsSource = source;
+		const [forEmail] = await asReports({ tenantId: tid, endedSince: at("09:00"), now: at("11:00") });
+		assert.ok(forEmail);
+		assert.equal(mainChat(forEmail), "chat_z");
+		assert.equal(sittingSeconds(forEmail), 2400);
 	});
 });
 
