@@ -8,6 +8,9 @@ export type { WebSearchResult };
 import { Readability } from "@mozilla/readability";
 import { parseHTML } from "linkedom";
 import TurndownService from "turndown";
+// North Aero fork (W2-6): in hosted mode web_fetch refuses this machine and
+// private networks (docs/upstream-changes.md). Plain fetch() otherwise.
+import { safeFetch } from "../../../frontdoor/isolation/safe-fetch.ts";
 
 /**
  * Server-side web tools for the researcher sub-agent — a minimal port of the
@@ -80,7 +83,7 @@ function htmlToMarkdown(html: string): { title: string; content: string } | null
 }
 
 async function fetchAndExtract(url: string): Promise<string> {
-	const resp = await fetch(url, {
+	const resp = await safeFetch(url, {
 		headers: {
 			"User-Agent": USER_AGENT,
 			Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",

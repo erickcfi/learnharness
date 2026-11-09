@@ -15,12 +15,14 @@ Decision and spike: `docs/decisions/2026-11-08-x5-front-door-spike.md`.
 |---|---|
 | `server.ts` | The custom Node server. `tsx` runs it (the meter's price list imports upstream TypeScript that plain Node cannot strip). |
 | `wiring/` | Start checks and secrets (`env.ts`), the database client (`database.ts`), and `startFrontDoor()` (`front-door.ts`), which connects every piece below. |
-| `gateway/` | Request handling: routing, login cookie, 18+ form, first login, pass-through, Clerk adapter, settings from env. No framework. |
+| `gateway/` | Request handling: routing, login cookie, 18+ form, first login, the route table (`route-policy.ts`, `route-guard.ts`, W2-6), pass-through, Clerk adapter, settings from env. No framework. |
+| `isolation/` | Tenant walls and hosted mode (W2-6): the web tools' address guard (`safe-fetch.ts`) and the hosted switch for upstream's UI (`hosted.tsx`). See `docs/decisions/2026-11-08-route-blocks.md`. |
 | `tenants/` | Accounts store (interface, Supabase store, in-memory store), tenant paths, provisioning, settings template, process supervisor. No framework. |
 | `metering/` | The meter: pass keys, the proxy, prices, and its stores (Supabase with the DB-outage rules, in-memory). |
 | `db/`, `supabase/` | The database module and its migrations. See `db/README.md`. |
 | `production-safety/`, `log-hygiene/`, `settings-template/`, `source-link/` | Lockdown pieces. |
 | `records/` | The printed study record. |
+| `pause/`, `retention/`, `backups/` | W2-7: alert and autopause, the pause and plan-ended screens, unpause, the export zip, the day-91 delete, nightly tenant copies and restore. See `pause/README.md`. |
 | `email/`, `reports/` | Email reports (W2-10): the SES sender and its fake, the session-end and weekly reports, the loop that sends them, `/account/reports` and `/account/unsubscribe`. Wording in `email/copy.ts`. See `docs/decisions/2026-11-08-email-reports.md`. |
 | `app/account/` | The front door's Next.js pages. Clerk is set up in `app/account/layout.tsx` only. |
 | `app/(public)/`, `marketing/` | The public pages: landing, How it works, Help, legal placeholders (W2-11). Text in `marketing/copy.ts`. |
@@ -57,7 +59,9 @@ Environment variables: see "Deploy on Railway" below. Outside production the fou
 5. **Tenant servers** (`tenants/supervisor.ts`): each one's `settings.json` gets the library-only File access section, and its environment gets `LH_LIBRARY_DIR` and its metering pass key.
 6. **Tenant logs** (`wiring/tenant-logs.ts`): only what a tenant server prints to stderr reaches the front door's log, as `[tenant <id>] <line>`, through the front door's log filter too, cut to 300 characters, at most 100 lines a minute per tenant (then one "N lines suppressed" line). Stdout is dropped. Known gap: student text inside an error message that is not in quotes stays, as with the log filter itself.
 
-Tenant servers get only `PATH`, `LANG`, `LC_ALL` and `TZ` from the front door's environment, plus their own folder settings, `LH_LIBRARY_DIR`, and the metering variables (pass key, meter address). No front door secret reaches them.
+Tenant servers get only `PATH`, `LANG`, `LC_ALL` and `TZ` from the front door's environment, plus their own folder settings (`TMPDIR` is `<tenant folder>/.tmp`), `LH_LIBRARY_DIR`, and the metering variables (pass key, meter address). No front door secret reaches them.
+
+**Route table and tenant walls (W2-6).** Every logged-in request is checked against `gateway/route-policy.ts` before it passes through. Blocked API routes get 403 JSON, and an unlisted API route is refused too. Each tenant server runs with `LH_HOSTED=1` and its own random secret (`LH_DESKTOP_API_SECRET`, new at every start). It refuses any request, on any path, without that secret in `x-learnharness-desktop`, which only the front door adds. **Code that calls a tenant server directly (records, dashboard, email reports) must use `supervisor.endpoint(tenantId)` or `tenantFetch(tenantId, path)`** (from `startFrontDoor()`: `tenantEndpoint(tenantId)`). Before every tenant start, the supervisor writes the Owner's settings template again, so a drifted `settings.json` is put back. Details and the full table: `docs/decisions/2026-11-08-route-blocks.md`.
 
 ### When the database is down
 
@@ -104,6 +108,9 @@ It sets `NODE_ENV=production` and runs `server.ts` with `tsx`.
 | `<volume>/library/` | The shared source library (`LH_LIBRARY_DIR`), the only folder the tutors' file tools may read. Made at start if missing. |
 | `<volume>/metering/` | `pending-usage.jsonl` and `rejected-usage.jsonl`, only after a database outage. |
 | `<volume>/.library-incoming/` | Library uploads while they stream in (owner-only). Empty between uploads. |
+| `<volume>/backups/nightly/<date>/` | Nightly copy of each tenant folder, with a manifest, newest 7 nights (W2-7). Restore: `docs/decisions/2026-11-08-backups.md`. |
+| `<volume>/restore-kept/` | A folder a live restore replaced, kept until a person removes it. |
+| `<volume>/retention/pending-login-deletes.json` | Clerk users of deleted tenants still to delete, only while Clerk could not be reached on day 91 (owner-only). |
 
 **Variables:**
 
@@ -116,6 +123,7 @@ It sets `NODE_ENV=production` and runs `server.ts` with `tsx`.
 | `ANTHROPIC_API_KEY` | The real Anthropic key. Only the meter uses it. | Yes | Yes |
 | `TAVILY_API_KEY` | The real Tavily key. Only the meter uses it. | Yes | Yes |
 | `SUPABASE_DB_URL` | The Supabase session pooler connection string (IPv4, port 5432), from Supabase's Connect panel. It holds the database password. TLS is required unless the string sets `sslmode`. | Yes | Yes |
+| `LH_TRIAL_HASH_KEY` | Scrambles each trial email (a one-way keyed hash) in `trial_claims`, so one email gets one trial even after day 91. 32+ random characters (for example `openssl rand -base64 48`). **Never change it** once students have signed up; keep a copy outside Railway. | Yes | Yes |
 | `SES_REGION`, `SES_ACCESS_KEY_ID`, `SES_SECRET_ACCESS_KEY` | Amazon SES for report email (a send-only IAM key). All three or none: none means email off. See `docs/decisions/2026-11-08-email-reports.md`. | Key: yes | To send email |
 | `FRONTDOOR_PUBLIC_URL` | The site address in email links. Default `https://ground.flynorthaero.com`. | No | Staging only |
 | `FRONTDOOR_AUTHORIZED_PARTIES` | The site's origins, comma-separated, for example `https://ground.flynorthaero.com` and the staging address. Clerk logins are accepted only from these. | No | Recommended |

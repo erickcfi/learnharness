@@ -2,10 +2,14 @@
  * Tenant provisioning (PRD C1 req 2, C3 req 3 at create time).
  *
  * Creates <volume>/tenants/<tenantId>/ and writes the Owner's template into
- * its settings.json. Safe to run on every login: it never deletes anything,
- * keeps every section the template does not own, and never touches an
- * existing key file. It refuses to replace a settings file it cannot read,
- * so a damaged file is left for a person to look at.
+ * its settings.json. Safe to run on every login and at every tenant start
+ * (P2-04: the supervisor runs it before each start, so the template wins if
+ * settings.json drifted). It never deletes a file, keeps every section the
+ * template does not own, and never touches an existing key file. The
+ * template owns: `models`, `agent.fileAccess`, `agent.models` (none), and
+ * the `chat`, `customProvider` and `claudeCode` sections (none). It refuses
+ * to replace a settings file it cannot read, so a damaged file is left for a
+ * person to look at.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -27,6 +31,10 @@ export interface ProvisionResult {
 }
 
 type Json = Record<string, unknown>;
+
+/** Top-level sections the Owner's template removes: the chat default model
+ *  and thinking level, the custom provider, and the Claude Code opt-in. */
+export const TEMPLATE_REMOVES = ["chat", "customProvider", "claudeCode"] as const;
 
 const isObject = (value: unknown): value is Json => typeof value === "object" && value !== null && !Array.isArray(value);
 
@@ -66,13 +74,22 @@ export function provisionTenant(options: ProvisionOptions): ProvisionResult {
 	fs.mkdirSync(path.dirname(authFile), { recursive: true, mode: 0o700 });
 	if (!fs.existsSync(authFile)) writeAtomic(authFile, "{}\n", 0o600);
 
+	// Each tenant's own temp folder (TMPDIR, set by the supervisor; C1 req 4).
+	fs.mkdirSync(path.join(dir, ".tmp"), { recursive: true, mode: 0o700 });
+
 	const settingsFile = path.join(dir, "settings.json");
 	const existing = readSettings(settingsFile) ?? {};
 	const template = buildSettingsTemplate({ volumeDir: path.resolve(options.volumeDir), tenantDir: dir }, options.fileAccess);
 	const agent = isObject(existing.agent) ? { ...existing.agent } : {};
 	if (template.fileAccess) agent.fileAccess = template.fileAccess;
+	// P2-04, N2: the template owns every model choice. Per-role overrides go,
+	// and so do the sections that only pick a model or a provider. A student
+	// cannot write them (gateway/route-policy.ts); this undoes any drift.
+	delete agent.models;
+	const kept: Json = { ...existing };
+	for (const section of TEMPLATE_REMOVES) delete kept[section];
 	const next: Json = {
-		...existing,
+		...kept,
 		version: typeof existing.version === "number" ? existing.version : SETTINGS_VERSION,
 		models: template.models,
 		...(Object.keys(agent).length > 0 ? { agent } : {}),

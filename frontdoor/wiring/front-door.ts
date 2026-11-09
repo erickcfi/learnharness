@@ -35,21 +35,23 @@ import { type Db, markTenantReady } from "../db/index.ts";
 import type { ClerkGateway } from "../gateway/auth.ts";
 import { createClerkGateway } from "../gateway/clerk.ts";
 import { createGateway } from "../gateway/handler.ts";
+import { studentRoutePolicy } from "../gateway/route-guard.ts";
+import type { RouteRule } from "../gateway/route-policy.ts";
 import { passKeyResolver } from "../metering/pass-key.ts";
 import { createMeteringProxy } from "../metering/proxy.ts";
 import { createMemoryMeteringStore } from "../metering/store.ts";
 import { createSupabaseMeteringStore, type DurableMeteringStore } from "../metering/supabase-store.ts";
 import { meteringEnvForTenant } from "../metering/tenant-env.ts";
+import { createDataSafety, type DataSafety } from "../pause/data-safety.ts";
 import { tenantServerEnv } from "../production-safety/index.ts";
 import { endedSittingsSource } from "../study-time/queries.ts";
-import { tenantFetchStandIn } from "../reports/tenant-record.ts";
 import { type EmailReports, type EmailReportsOptions, startEmailReports } from "../reports/wiring.ts";
 import { fileAccessTemplate, libraryDir, tenantLockdownEnv } from "../settings-template/file-access.ts";
 import { type AccountStore, InMemoryAccountStore } from "../tenants/accounts.ts";
 import { provisionTenant } from "../tenants/provisioning.ts";
 import type { FileAccessProvider } from "../tenants/settings-template.ts";
 import { SupabaseAccountStore } from "../tenants/supabase-accounts.ts";
-import { TenantSupervisor } from "../tenants/supervisor.ts";
+import { type TenantEndpoint, TenantSupervisor } from "../tenants/supervisor.ts";
 import { connectDatabase, type DatabaseConnection } from "./database.ts";
 import { preflight } from "./env.ts";
 import { tenantStderrForwarder } from "./tenant-logs.ts";
@@ -70,6 +72,9 @@ export interface FrontDoorOptions {
 	db?: Db;
 	/** Tests only: where the meter forwards (fakes on 127.0.0.1). Never set from the environment. */
 	upstream?: { anthropicBaseUrl?: string; tavilyBaseUrl?: string };
+	/** Tests only: extra API routes a stand-in tenant answers (W2-6 route table).
+	 *  Never set from the environment. */
+	extraTestRoutes?: readonly RouteRule[];
 	/** Tests only: the email sender and student directory for the reports (W2-10). */
 	email?: Pick<EmailReportsOptions, "sender" | "students">;
 	/** Operational lines. Never given session text or email addresses. */
@@ -81,6 +86,11 @@ export interface FrontDoor {
 	url: string;
 	/** Where tenant servers reach the meter. */
 	meterUrl: string;
+	/** A tenant's server (started if needed) and the secret header every
+	 *  request to it needs (W2-6 wall A). For records, dashboard, email. */
+	tenantEndpoint(tenantId: string): Promise<TenantEndpoint>;
+	/** W2-7, with a database: pause controls (dashboard), retention calls (Stripe), the cost watch. */
+	dataSafety?: DataSafety;
 	/** Email reports (W2-10). */
 	email: Pick<EmailReports, "mode" | "sender" | "runner">;
 	/** Stops tenant servers, writes every usage row it still holds, and closes. */
@@ -120,6 +130,17 @@ export async function startFrontDoor(options: FrontDoorOptions): Promise<FrontDo
 		? createSupabaseMeteringStore(db, { log, pendingFile: pendingUsageFile(config.volumeDir) })
 		: { ...createMemoryMeteringStore(), flush: async () => {}, close: async () => {}, pending: () => 0 };
 	if (!db) log("no database: accounts and usage are kept in memory until the front door stops");
+	const clerk = options.clerk ?? createClerkGateway(config.clerk);
+	// W2-7 (pause/data-safety.ts): alert and autopause after each call, retention refusal, screens, export, jobs. Needs the database.
+	const safety = db
+		? createDataSafety({
+				db,
+				volumeDir: config.volumeDir,
+				log,
+				secureCookies: config.secureCookies,
+				...(clerk.deleteUser ? { deleteLogin: (id: string) => clerk.deleteUser!(id) } : {}),
+			})
+		: undefined;
 
 	// Lockdown: the shared library is the only folder a tenant's file tools may read.
 	const library = libraryDir(config.volumeDir);
@@ -128,7 +149,7 @@ export async function startFrontDoor(options: FrontDoorOptions): Promise<FrontDo
 
 	// Metering: on 127.0.0.1 only, on a free port.
 	const meter = createMeteringProxy({
-		store: meteringStore,
+		store: safety ? safety.wrapMeterStore(meteringStore) : meteringStore,
 		resolveTenant: passKeyResolver(wiring.passKeySecret),
 		anthropic: { apiKey: wiring.anthropicApiKey, ...(options.upstream?.anthropicBaseUrl ? { baseUrl: options.upstream.anthropicBaseUrl } : {}) },
 		...(wiring.tavilyApiKey
@@ -151,9 +172,16 @@ export async function startFrontDoor(options: FrontDoorOptions): Promise<FrontDo
 		// Errors only, filtered, cut, and capped per tenant (wiring/tenant-logs.ts).
 		onOutput: tenantStderrForwarder({ log }),
 		onExit: (tenantId, code, signal) => log(`tenant ${tenantId} server stopped (code ${code}, signal ${signal})`),
+		// W2-6, P2-04: the Owner's template is written again before every start.
+		prepare: (tenantId) => {
+			provisionTenant({ volumeDir: config.volumeDir, tenantId, fileAccess: libraryOnly });
+		},
 	});
+	// W2-6: the route table, with the Owner's File access for the agent-section check.
+	const policy = studentRoutePolicy({ fileAccess: fileAccessTemplate(library) });
+	const routePolicy = options.extraTestRoutes ? { ...policy, rules: [...options.extraTestRoutes, ...policy.rules] } : policy;
+	const dataSafety = safety?.attach(supervisor);
 
-	const clerk = options.clerk ?? createClerkGateway(config.clerk);
 	// W2-9: the Owner's dashboard at /admin, study time (PD1), the non-aviation flag (admin/wiring.ts).
 	const dashboard = createDashboard({
 		db: db ?? null,
@@ -163,6 +191,10 @@ export async function startFrontDoor(options: FrontDoorOptions): Promise<FrontDo
 		trustForwardedHeaders: config.trustForwardedHeaders,
 		frontDoorApp: options.frontDoorApp,
 		supervisor,
+		// W2-6 wall A: topics, session text and the N7 sweep read tenants with their secret.
+		tenantFetch: (tenantId, path) => supervisor.tenantFetch(tenantId, path),
+		// W2-7: the real pause and unpause (fresh count after unpause, alert cleared).
+		...(safety ? { pause: safety.controls } : {}),
 		libraryDir: library,
 		clerkSecretKey: config.clerk.secretKey || undefined,
 		anthropic: { apiKey: wiring.anthropicApiKey, ...(options.upstream?.anthropicBaseUrl ? { baseUrl: options.upstream.anthropicBaseUrl } : {}) },
@@ -181,8 +213,8 @@ export async function startFrontDoor(options: FrontDoorOptions): Promise<FrontDo
 		sessionSecret: config.sessionSecret,
 		secureCookies: config.secureCookies,
 		trustForwardedHeaders: config.trustForwardedHeaders,
-		// At the w2-isolation merge: (tenantId, path, init) => supervisor.tenantFetch(tenantId, path, init).
-		tenantFetch: tenantFetchStandIn((tenantId) => supervisor.ensureRunning(tenantId)),
+		// W2-6 wall A: every read of a tenant's server carries that tenant's secret.
+		tenantFetch: (tenantId, path, init) => supervisor.tenantFetch(tenantId, path, init),
 		// The one 30-minute rule (frontdoor/study-time): ended study sittings with per-chat seconds.
 		...(db ? { sittings: endedSittingsSource(db) } : {}),
 		...options.email,
@@ -195,6 +227,7 @@ export async function startFrontDoor(options: FrontDoorOptions): Promise<FrontDo
 		admin: dashboard.admin,
 		studentRoutes: dashboard.studentRoutes,
 		supervisor,
+		routePolicy,
 		provision: async (tenantId) => {
 			provisionTenant({ volumeDir: config.volumeDir, tenantId, fileAccess: libraryOnly });
 			// Safe to repeat: only a tenant still in 'provisioning' changes.
@@ -204,6 +237,7 @@ export async function startFrontDoor(options: FrontDoorOptions): Promise<FrontDo
 		secureCookies: config.secureCookies,
 		trustForwardedHeaders: config.trustForwardedHeaders,
 		frontDoorApp: options.frontDoorApp,
+		...(dataSafety ? { tenantGate: dataSafety.gate } : {}),
 		reportPages: email.reportPages,
 		log,
 	});
@@ -217,9 +251,12 @@ export async function startFrontDoor(options: FrontDoorOptions): Promise<FrontDo
 	return {
 		url,
 		meterUrl,
+		tenantEndpoint: (tenantId) => supervisor.endpoint(tenantId),
+		...(safety ? { dataSafety: safety } : {}),
 		email: { mode: email.mode, sender: email.sender, runner: email.runner },
 		close() {
 			closing ??= (async () => {
+				await safety?.close();
 				const stopped = closeServer(server);
 				await dashboard.close();
 				await email.close();

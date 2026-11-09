@@ -12,6 +12,8 @@ import { notifySettingsSaved, useSettingsSaved } from "@/components/settings-sig
 import { useModelCatalog } from "@/components/model-catalog";
 export { useModelCatalog } from "@/components/model-catalog";
 import { defaultOrderLevel, populateLevel, THINKING_LABEL } from "@/components/thinking-default";
+// North Aero fork (W2-6): hosted mode hides the pickers and their shortcuts.
+import { useHosted } from "@/frontdoor/isolation/hosted";
 
 /** provider:id → known contextWindow over the cached catalog, mirroring
  * the server's catalogContextLimits join. CLI aliases have no global
@@ -46,6 +48,7 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 	const [open, setOpen] = useState<"model" | "thinking" | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const containerRef = useRef<HTMLDivElement>(null);
+	const hosted = useHosted();
 
 	// The record read — BOTH mount and the cross-surface signal land
 	// here (fix wave: another surface's models write re-reads into the
@@ -226,6 +229,7 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 	// up the ladder (wrapping) — the owner's replacement for browser
 	// tab-focus. Both work from any focus, including mid-typing.
 	useEffect(() => {
+		if (hosted) return;
 		const onOpenPicker = () => {
 			setOpen("model");
 			setError(null);
@@ -233,9 +237,10 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 		};
 		window.addEventListener("lh:kbd-open-model-picker", onOpenPicker);
 		return () => window.removeEventListener("lh:kbd-open-model-picker", onOpenPicker);
-	}, [refresh]);
+	}, [refresh, hosted]);
 
 	useEffect(() => {
+		if (hosted) return;
 		const onCycleThinking = () => {
 			if (levels.length === 0) return;
 			const idx = effectiveLevel === undefined ? -1 : levels.indexOf(effectiveLevel);
@@ -245,7 +250,7 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 		};
 		window.addEventListener("lh:kbd-cycle-thinking", onCycleThinking);
 		return () => window.removeEventListener("lh:kbd-cycle-thinking", onCycleThinking);
-	}, [levels, effectiveLevel, effectiveProvider, effectiveId, apply]);
+	}, [levels, effectiveLevel, effectiveProvider, effectiveId, apply, hosted]);
 
 	// Selecting a model (click and Enter share one path): keep the
 	// thinking level only when the new model supports it — otherwise
@@ -272,6 +277,8 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 		if (kind === "model") refresh();
 	};
 
+	// Hosted: the model still reaches the stats bar (onModelChange above).
+	if (hosted) return null;
 	return (
 		<div ref={containerRef} className="relative flex items-center gap-1.5" data-testid="model-control">
 			<Hint

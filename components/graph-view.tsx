@@ -77,6 +77,8 @@ import { MenuShell } from "@/components/menu-shell.tsx";
 import { DeleteNodeDialog } from "@/components/delete-node-dialog.tsx";
 import { ChainTableOverlay } from "@/components/chain-table.tsx";
 import { Hint } from "@/components/ui/hint";
+// North Aero fork (W2-6): hosted mode hides the graph cost pill (flat price).
+import { useCostsHidden } from "@/frontdoor/isolation/hosted";
 import {
 	ARROW_LENGTH_LADDER,
 	CHARGE_RANGE,
@@ -345,6 +347,8 @@ export function GraphCostControl({ costs }: { costs: GraphCostSummary }) {
 	// wraps button + panel, so the toggle itself keeps working.
 	const rootRef = useRef<HTMLDivElement>(null);
 	usePopoverDismiss(rootRef, open, () => setOpen(false));
+	const costsHidden = useCostsHidden();
+	if (costsHidden) return null;
 	return (
 		<div ref={rootRef} className="relative">
 			<Hint

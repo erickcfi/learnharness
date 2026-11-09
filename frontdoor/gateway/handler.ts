@@ -19,18 +19,22 @@
  *                         door's app. With a login: the tutor, as below.
  *   everything else       needs the login cookie. Without it, /api gets 401
  *                         and a page redirects to sign-in. With it, the
- *                         request passes through to the tenant's server.
+ *                         route table decides (W2-6, route-guard.ts), and
+ *                         the request passes through to the tenant's server
+ *                         with that server's own secret header.
  *
  * Routing uses the normalized path ("..", "%2e%2e" resolved), and that same
  * path is what Next.js or the tenant receives.
  */
 import type { IncomingMessage, OutgoingHttpHeaders, ServerResponse } from "node:http";
 import { isAlwaysPublicPath, LANDING_PATH } from "../marketing/public-paths.ts";
+import type { TenantGate } from "../pause/gate.ts";
 import type { AccountStore } from "../tenants/accounts.ts";
 import type { ClerkGateway } from "./auth.ts";
 import { clearCookie, parseCookies, serializeCookie } from "./cookies.ts";
 import { passThrough } from "./passthrough.ts";
 import { FRONT_DOOR_PREFIX, safeReturnPath } from "./return-path.ts";
+import { guardRoute, studentRoutePolicy, type RoutePolicy } from "./route-guard.ts";
 import {
 	AGE_COOKIE,
 	AGE_MAX_AGE_SECONDS,
@@ -48,7 +52,12 @@ export interface GatewayDeps {
 	/** Read on every request, so the store can be swapped (tests). */
 	accounts: AccountStore;
 	clerk: ClerkGateway;
-	supervisor: { ensureRunning(tenantId: string): Promise<number> };
+	/** endpoint() (W2-6) also gives the tenant's secret header. Without it the
+	 *  request goes without the secret, and a hosted tenant refuses it. */
+	supervisor: { ensureRunning(tenantId: string): Promise<number>; endpoint?(tenantId: string): Promise<{ port: number; headers: Record<string, string> }> };
+	/** What a student may reach (W2-6, gateway/route-guard.ts). Default: the
+	 *  production table with no File access template. */
+	routePolicy?: RoutePolicy;
 	/** Creates the tenant folder and writes the settings template (provisioning.ts). */
 	provision(tenantId: string): void | Promise<void>;
 	sessionSecret: Uint8Array;
@@ -56,6 +65,8 @@ export interface GatewayDeps {
 	trustForwardedHeaders: boolean;
 	/** The front door's Next.js request handler, for /account pages. */
 	frontDoorApp(req: IncomingMessage, res: ServerResponse): unknown;
+	/** W2-7 (pause/gate.ts): the pause and plan-ended screens, and the export and record links. */
+	tenantGate?: TenantGate;
 	/** W2-10: /account/reports and /account/unsubscribe (reports/pages.ts). True when it answered. */
 	reportPages?(req: IncomingMessage, res: ServerResponse, url: URL): Promise<boolean>;
 	now?: () => number;
@@ -73,6 +84,7 @@ const firstValue = (value: string | string[] | undefined) => (Array.isArray(valu
 
 export function createGateway(deps: GatewayDeps): (req: IncomingMessage, res: ServerResponse) => void {
 	const now = () => (deps.now ? deps.now() : Date.now());
+	const defaultPolicy = studentRoutePolicy();
 	const cookie = (name: string, value: string, maxAgeSeconds: number) => serializeCookie(name, value, { maxAgeSeconds, secure: deps.secureCookies });
 	const clear = (name: string) => clearCookie(name, deps.secureCookies);
 
@@ -234,14 +246,24 @@ export function createGateway(deps: GatewayDeps): (req: IncomingMessage, res: Se
 
 		// W2-9: study-time heartbeat (PD1) and the session-text switch, for this login's tenant.
 		if (deps.studentRoutes?.handles(pathname)) return deps.studentRoutes.handle(req, res, current.tenantId, pathname);
+		// W2-6: route blocks and the model lock (gateway/route-guard.ts).
+		const verdict = await guardRoute(req, pathname, deps.routePolicy ?? defaultPolicy);
+		if (verdict.kind === "refuse") return sendJson(res, verdict.status, { error: verdict.message }, setCookie);
+		if (verdict.kind === "redirect-home") return redirect(res, 302, "/", setCookie);
+		// W2-7: paused, plan ended, or deleted (pause/gate.ts). Before the tenant's server is started.
+		const signOut = () => signInRequired(req, res, pathname, target, [clear(SESSION_COOKIE)]);
+		if (deps.tenantGate && (await deps.tenantGate.handle(req, res, { tenantId: current.tenantId, userId: current.userId, pathname, setCookie, signOut }))) return;
+
 		let port: number;
+		let tenantHeaders: Record<string, string> = {};
 		try {
-			port = await deps.supervisor.ensureRunning(current.tenantId);
+			if (deps.supervisor.endpoint) ({ port, headers: tenantHeaders } = await deps.supervisor.endpoint(current.tenantId));
+			else port = await deps.supervisor.ensureRunning(current.tenantId);
 		} catch (error) {
 			deps.log?.(`tenant ${current.tenantId} could not start: ${(error as Error).message}`);
 			return tutorUnavailable(res, isApi(pathname));
 		}
-		passThrough(req, res, { port, path: target, proto: proto(req), setCookie });
+		passThrough(req, res, { port, path: target, proto: proto(req), setCookie, tenantHeaders, body: verdict.body });
 	}
 
 	async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -252,6 +274,8 @@ export function createGateway(deps: GatewayDeps): (req: IncomingMessage, res: Se
 		const target = `${pathname}${url.search}`;
 
 		if (pathname === FRONT_DOOR_PREFIX || pathname.startsWith(`${FRONT_DOOR_PREFIX}/`)) {
+			// W2-7: /account/export and /account/record need the login, so they take the tenant path.
+			if (deps.tenantGate?.ownsPath(pathname)) return handleTenantRequest(req, res, pathname, target);
 			req.url = target;
 			if (pathname === FRONT_DOOR_PREFIX || pathname === `${FRONT_DOOR_PREFIX}/`) return redirect(res, 302, `${FRONT_DOOR_PREFIX}/sign-in`);
 			if (pathname === `${FRONT_DOOR_PREFIX}/age` && req.method === "POST") return handleAge(req, res);
