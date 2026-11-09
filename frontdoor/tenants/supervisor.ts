@@ -90,6 +90,19 @@ function freePort(): Promise<number> {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** SIGTERM, then SIGKILL after 5 s. */
+function stopChild(child: ChildProcess): Promise<void> {
+	return new Promise<void>((resolve) => {
+		if (child.exitCode !== null || child.signalCode !== null) return resolve();
+		const force = setTimeout(() => child.kill("SIGKILL"), 5000);
+		child.once("exit", () => {
+			clearTimeout(force);
+			resolve();
+		});
+		child.kill("SIGTERM");
+	});
+}
+
 export class TenantSupervisor {
 	readonly #options: TenantSupervisorOptions;
 	readonly #running = new Map<string, Running>();
@@ -118,20 +131,17 @@ export class TenantSupervisor {
 	async stopAll(): Promise<void> {
 		const children = [...this.#running.values()].map((r) => r.child);
 		this.#running.clear();
-		await Promise.all(
-			children.map(
-				(child) =>
-					new Promise<void>((resolve) => {
-						if (child.exitCode !== null || child.signalCode !== null) return resolve();
-						const force = setTimeout(() => child.kill("SIGKILL"), 5000);
-						child.once("exit", () => {
-							clearTimeout(force);
-							resolve();
-						});
-						child.kill("SIGTERM");
-					}),
-			),
-		);
+		await Promise.all(children.map(stopChild));
+	}
+
+	/** Stops one tenant's server, waiting for a start under way first (W2-7: day-91 delete, restore). The next request starts it again. */
+	async stop(tenantId: string): Promise<void> {
+		assertTenantId(tenantId);
+		await this.#starting.get(tenantId)?.catch(() => undefined);
+		const running = this.#running.get(tenantId);
+		if (!running) return;
+		this.#running.delete(tenantId);
+		await stopChild(running.child);
 	}
 
 	async #start(tenantId: string): Promise<number> {

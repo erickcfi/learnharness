@@ -22,6 +22,7 @@
  */
 import type { IncomingMessage, OutgoingHttpHeaders, ServerResponse } from "node:http";
 import { isAlwaysPublicPath, LANDING_PATH } from "../marketing/public-paths.ts";
+import type { TenantGate } from "../pause/gate.ts";
 import type { AccountStore } from "../tenants/accounts.ts";
 import type { ClerkGateway } from "./auth.ts";
 import { clearCookie, parseCookies, serializeCookie } from "./cookies.ts";
@@ -52,6 +53,8 @@ export interface GatewayDeps {
 	trustForwardedHeaders: boolean;
 	/** The front door's Next.js request handler, for /account pages. */
 	frontDoorApp(req: IncomingMessage, res: ServerResponse): unknown;
+	/** W2-7 (pause/gate.ts): the pause and plan-ended screens, and the export and record links. */
+	tenantGate?: TenantGate;
 	now?: () => number;
 	/** Never given session text or email addresses (cross-cutting req 3). */
 	log?: (message: string) => void;
@@ -222,6 +225,10 @@ export function createGateway(deps: GatewayDeps): (req: IncomingMessage, res: Se
 			setCookie.push(cookie(SESSION_COOKIE, await signSession(current, deps.sessionSecret, now()), SESSION_MAX_AGE_SECONDS));
 		}
 
+		// W2-7: paused, plan ended, or deleted (pause/gate.ts). Before the tenant's server is started.
+		const signOut = () => signInRequired(req, res, pathname, target, [clear(SESSION_COOKIE)]);
+		if (deps.tenantGate && (await deps.tenantGate.handle(req, res, { tenantId: current.tenantId, userId: current.userId, pathname, setCookie, signOut }))) return;
+
 		let port: number;
 		try {
 			port = await deps.supervisor.ensureRunning(current.tenantId);
@@ -244,6 +251,8 @@ export function createGateway(deps: GatewayDeps): (req: IncomingMessage, res: Se
 		const target = `${pathname}${url.search}`;
 
 		if (pathname === FRONT_DOOR_PREFIX || pathname.startsWith(`${FRONT_DOOR_PREFIX}/`)) {
+			// W2-7: /account/export and /account/record need the login, so they take the tenant path.
+			if (deps.tenantGate?.ownsPath(pathname)) return handleTenantRequest(req, res, pathname, target);
 			req.url = target;
 			if (pathname === FRONT_DOOR_PREFIX || pathname === `${FRONT_DOOR_PREFIX}/`) return redirect(res, 302, `${FRONT_DOOR_PREFIX}/sign-in`);
 			if (pathname === `${FRONT_DOOR_PREFIX}/age` && req.method === "POST") return handleAge(req, res);
