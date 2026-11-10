@@ -13,6 +13,11 @@
  *    Needs a terms URL in Stripe's Public details first.
  *  - customer: our own Customer with the Clerk email, so Checkout shows it
  *    read-only and the email trial check means something.
+ *  - allowed_payment_method_types ["card"]: cards only, so the one-trial-per-card
+ *    check always gets a card fingerprint. A Link payment method has none
+ *    (staging, 2026-11-10: Erick typed the test card and Stripe saved it as
+ *    Link). Apple Pay and Google Pay still work: they pay with a card.
+ *    Erick chose cards only, 2026-11-10.
  *  - managed_payments.enabled false: North Aero is the seller. Stripe turns
  *    Managed Payments (Stripe as merchant of record) on by default for new
  *    accounts, and then refuses custom_text, so Checkout failed for every
@@ -62,6 +67,7 @@ export async function startCheckout(core: BillingCore, input: { tenantId: string
 		client_reference_id: tenant.id,
 		line_items: [{ price: price.id, quantity: 1 }],
 		payment_method_collection: "always",
+		allowed_payment_method_types: ["card"],
 		allow_promotion_codes: true,
 		consent_collection: { terms_of_service: "required" },
 		custom_text: {

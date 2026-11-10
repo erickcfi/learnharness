@@ -54,6 +54,7 @@ describe("Checkout with the trial (P4-02, C2 req 1 and 2)", () => {
 		const params = h.stripe.checkoutSession(sessionId).params;
 		assert.equal(params.mode, "subscription");
 		assert.equal(params.payment_method_collection, "always", "card required, even with the trial");
+		assert.deepEqual(params.allowed_payment_method_types, ["card"], "cards only: a Link payment method has no card fingerprint for the one-trial check");
 		assert.equal(params.subscription_data?.trial_period_days, 7);
 		assert.equal(params.allow_promotion_codes, true);
 		assert.deepEqual(params.consent_collection, { terms_of_service: "required" });
