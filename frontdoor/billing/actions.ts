@@ -13,6 +13,10 @@
  *    Needs a terms URL in Stripe's Public details first.
  *  - customer: our own Customer with the Clerk email, so Checkout shows it
  *    read-only and the email trial check means something.
+ *  - managed_payments.enabled false: North Aero is the seller. Stripe turns
+ *    Managed Payments (Stripe as merchant of record) on by default for new
+ *    accounts, and then refuses custom_text, so Checkout failed for every
+ *    student (staging, 2026-11-10). Using Managed Payments is Erick's call.
  *
  * Buy now (C2 req 4) is one subscription update: trial_end "now", the new
  * price, proration_behavior "always_invoice" (so the charge is made now, in
@@ -65,6 +69,7 @@ export async function startCheckout(core: BillingCore, input: { tenantId: string
 				message: checkoutTermsText(input.origin, plan.months),
 			},
 		},
+		managed_payments: { enabled: false },
 		subscription_data: {
 			...(trial ? { trial_period_days: TRIAL.days } : {}),
 			metadata: { tenant_id: tenant.id, trial: trial ? "granted" : "none" },

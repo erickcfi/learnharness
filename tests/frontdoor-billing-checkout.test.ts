@@ -57,6 +57,7 @@ describe("Checkout with the trial (P4-02, C2 req 1 and 2)", () => {
 		assert.equal(params.subscription_data?.trial_period_days, 7);
 		assert.equal(params.allow_promotion_codes, true);
 		assert.deepEqual(params.consent_collection, { terms_of_service: "required" });
+		assert.deepEqual(params.managed_payments, { enabled: false }, "Managed Payments refuses custom_text, so it is turned off");
 		assert.match((params.custom_text?.terms_of_service_acceptance as { message?: string } | undefined)?.message ?? "", /renews automatically every month until I cancel/);
 		assert.equal(params.client_reference_id, s.tenantId);
 		const price = (await h.stripe.prices.list({ lookup_keys: ["ground_tutor_monthly"] })).data[0];

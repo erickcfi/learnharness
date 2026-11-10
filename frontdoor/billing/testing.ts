@@ -375,6 +375,10 @@ export class StripeStandIn implements StripeApi {
 				this.calls.push({ method: "checkout.sessions.create", params });
 				if (params.mode !== "subscription") throw new StandInStripeError("The stand-in only models subscription mode.");
 				if (params.allow_promotion_codes && params.discounts) throw new StandInStripeError("You may only specify one of these parameters: allow_promotion_codes, discounts.");
+				// Like a new Stripe account: Managed Payments is on unless the session turns it off, and it refuses custom_text.
+				if (params.custom_text && params.managed_payments?.enabled !== false) {
+					throw new StandInStripeError("custom_text cannot be used with Managed Payments, which is enabled by default on your account.");
+				}
 				const items = params.line_items ?? [];
 				const first = items[0];
 				if (items.length !== 1 || !first?.price || !this.#prices.has(first.price)) throw new StandInStripeError("Exactly one known recurring price is needed.");
