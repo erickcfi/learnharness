@@ -143,6 +143,7 @@ STRIPE_SECRET_KEY=sk_test_... STRIPE_STUDENT_PROMO_CODE=<code> STRIPE_TESTER_PRO
   - Promotion codes take `promotion: { type: "coupon", coupon }`.
 - **Checkout:**
   - `payment_method_collection: "always"` (the default) collects a card even with a trial or a 100% code.
+  - `allowed_payment_method_types: ["card"]`: cards only (this API version has no `payment_method_types` on Checkout; the new field filters Stripe's own list). A Link payment method carries no card fingerprint, so the one-trial-per-card check could not run (staging, 2026-11-10). Apple Pay and Google Pay still show: they are card wallets.
   - `consent_collection.terms_of_service: "required"` needs a terms URL in Public details.
   - Passing `customer` makes the email read-only.
   - Checkout creates the subscription only after it completes.
