@@ -1,6 +1,6 @@
 /**
  * Email address checks for the report address (C6 req 3: any address is
- * allowed, D20) and the Owner alert address. Plain on purpose: one address,
+ * allowed, D20). Plain on purpose: one address,
  * no display name, no spaces, no line breaks (so it can never inject a
  * header), at most 254 characters (RFC 5321).
  */

@@ -414,7 +414,7 @@ export const SCREENS = {
 			"In 31012KT, the first three digits are the direction the wind blows from, in degrees true. The last two are its speed in knots.",
 			"A G adds gusts. 31012G20KT means 12 knots, gusting to 20.",
 		],
-		source: "Source: AC 00-45H, Aviation Weather Services",
+		source: "Source: FAA-H-8083-28B, Aviation Weather Handbook",
 		kind: "Check",
 		question: "Decode 24008G15KT.",
 		options: ["From 240° true at 8 knots, gusting to 15", "Toward 240° true at 8 knots, gusting to 15", "From 240° magnetic at 15 knots, gusting to 8"],
