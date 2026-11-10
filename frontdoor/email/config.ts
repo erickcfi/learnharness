@@ -6,7 +6,7 @@
  * SES configuration set. They come from the approved checklist.
  *
  * Railway variables (secrets live only there, cross-cutting req 2):
- *   SES_REGION             the AWS Region of flynorth's SES, e.g. us-west-2
+ *   SES_REGION             the AWS Region of the tutor's SES, e.g. us-west-2
  *   SES_ACCESS_KEY_ID      an access key for an IAM user that may only send
  *   SES_SECRET_ACCESS_KEY  its secret
  *   FRONTDOOR_PUBLIC_URL   optional: the site address used in email links,
@@ -32,7 +32,7 @@ export const BILLING_FROM_ADDRESS = "billing@ground.flynorthaero.com";
 export const EMAIL_FROM_NAME = "North Aero Ground Tutor";
 /** PD7. Mail sent to reports@ cannot be received. */
 export const EMAIL_REPLY_TO = CONTACT_EMAIL;
-/** C6 req 5: separate from flynorth's. Also the identity's default set. */
+/** C6 req 5. Also the identity's default set. */
 export const SES_CONFIGURATION_SET = "ground-tutor-reports";
 
 export const SES_VARIABLES = ["SES_REGION", "SES_ACCESS_KEY_ID", "SES_SECRET_ACCESS_KEY"] as const;

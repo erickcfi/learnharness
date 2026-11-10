@@ -45,7 +45,7 @@ The settings page is `/account/reports`. It needs the front door login (a valid 
 
 ## Bounces and complaints
 
-The tutor shares flynorth's AWS account and Region. SES watches the bounce and complaint rates of the whole account. If they get too high, AWS can pause sending for the account, which would stop flynorth's email too. So bad addresses must stop getting mail quickly.
+The tutor has its own AWS account (flynorth has no SES, found 2026-11-09). SES watches the bounce and complaint rates of the whole account. If they get too high, AWS can pause sending for the account, which would also stop the billing notices that California law requires. So bad addresses must stop getting mail quickly.
 
 ### Now (no code): the SES suppression list
 
@@ -66,14 +66,14 @@ It is not built here because it needs a new outside setup (the SNS topic), a pub
 
 ## Permission for the sending key (IAM)
 
-The key in Railway should be able to send only, only from `reports@ground.flynorthaero.com`, only through this identity and configuration set. A policy for a new IAM user (for example `ground-tutor-ses-sender`), with `<region>` and `<account-id>` filled in:
+The key in Railway should be able to send only, only from `reports@ground.flynorthaero.com` or `billing@ground.flynorthaero.com` (the billing notices, `frontdoor/billing/emails.ts`), only through this identity and configuration set. A policy for a new IAM user (for example `ground-tutor-ses-sender`), with `<region>` and `<account-id>` filled in:
 
 ```json
 {
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "SendTutorReportsOnly",
+      "Sid": "SendTutorEmailOnly",
       "Effect": "Allow",
       "Action": "ses:SendEmail",
       "Resource": [
@@ -81,7 +81,7 @@ The key in Railway should be able to send only, only from `reports@ground.flynor
         "arn:aws:ses:<region>:<account-id>:configuration-set/ground-tutor-reports"
       ],
       "Condition": {
-        "StringEquals": { "ses:FromAddress": "reports@ground.flynorthaero.com" }
+        "StringEquals": { "ses:FromAddress": ["reports@ground.flynorthaero.com", "billing@ground.flynorthaero.com"] }
       }
     }
   ]
@@ -90,11 +90,11 @@ The key in Railway should be able to send only, only from `reports@ground.flynor
 
 Checked 2026-11-08 against the AWS docs: SES v2 sending lists both the identity and the configuration-set resource types, and `ses:FromAddress` is a supported condition key. No single AWS example shows the two together, so step 6 below (the staging test) is the proof. While the Region is in the sandbox, SES may also check permission on the verified test recipient. If a test send answers `AccessDenied`, add that address's identity ARN to `Resource` for the test, then remove it.
 
-How to make the user (AWS console, same account as flynorth's SES):
+How to make the user (AWS console, in the tutor's own AWS account):
 
 1. Open IAM > **Users** > **Create user**. Name: `ground-tutor-ses-sender`. Leave "Provide user access to the AWS Management Console" unchecked (it is for a program, not a person).
 2. Permissions: choose **Attach policies directly**, attach nothing, and finish creating the user.
-3. Open the new user > **Permissions** > **Add permissions** > **Create inline policy** > **JSON**. Paste the policy above with `<region>` and `<account-id>` filled in (the account ID is at the top right of the console). Name it `send-tutor-reports-only`.
+3. Open the new user > **Permissions** > **Add permissions** > **Create inline policy** > **JSON**. Paste the policy above with `<region>` and `<account-id>` filled in (the account ID is at the top right of the console). Name it `send-tutor-email-only`.
 4. Open **Security credentials** > **Create access key**. Use case: **Application running outside AWS**. Copy the access key ID and the secret into Railway (below). The secret is shown once. Never paste it into chat, email or the repo.
 
 Sources: [Actions, resources, and condition keys for Amazon SES v2](https://docs.aws.amazon.com/service-authorization/latest/reference/list_amazonsimpleemailservicev2.html), [Identity and access management in Amazon SES](https://docs.aws.amazon.com/ses/latest/dg/control-user-access.html), [Sending policy examples](https://docs.aws.amazon.com/ses/latest/dg/sending-authorization-policy-examples.html).
@@ -103,7 +103,7 @@ Sources: [Actions, resources, and condition keys for Amazon SES v2](https://docs
 
 | Name | What it is for | Secret | Required |
 |---|---|---|---|
-| `SES_REGION` | The AWS Region of flynorth's SES, for example `us-west-2` (SES checklist, step 0) | No | To send email |
+| `SES_REGION` | The AWS Region of the tutor's SES, for example `us-west-2` (SES checklist, step 0) | No | To send email |
 | `SES_ACCESS_KEY_ID` | The IAM user's access key ID | Yes | To send email |
 | `SES_SECRET_ACCESS_KEY` | The IAM user's secret access key | Yes | To send email |
 | `FRONTDOOR_PUBLIC_URL` | The site address in email links. Default `https://ground.flynorthaero.com`. Staging sets its own address | No | Staging only |

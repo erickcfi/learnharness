@@ -11,12 +11,12 @@
 
 | Setting | Value | Source |
 |---|---|---|
-| AWS account and Region | The same account and Region as flynorth's SES. Region code: `________` (fill in at step 0) | Erick, 2026-11-08 |
+| AWS account and Region | A new AWS account for the tutor. flynorth has no SES (found 2026-11-09), so there is no account to share. Region code: `________` (fill in at step 0; `us-west-2` suggested) | Master, 2026-11-09 |
 | Domain identity | `ground.flynorthaero.com`, with Easy DKIM (2048-bit, the default) | C6 req 4, N1 |
-| From | `reports@ground.flynorthaero.com` | N1 |
+| From | `reports@ground.flynorthaero.com` (session reports) and `billing@ground.flynorthaero.com` (sign-up and renewal notices) | N1; billing emails, master 2026-11-08 |
 | Reply-To | `info@flynorthaero.com` | PD7 |
 | Custom MAIL FROM | `bounce.ground.flynorthaero.com` | C6 req 4 (the PRD's example name), plan approved 2026-11-08 |
-| Configuration set | `ground-tutor-reports`, separate from flynorth's | C6 req 5, plan approved 2026-11-08 |
+| Configuration set | `ground-tutor-reports` | C6 req 5, plan approved 2026-11-08 |
 | Behavior on MX failure | Use default MAIL FROM domain, so reports keep sending | Plan approved 2026-11-08 |
 
 Rules from C6 req 5:
@@ -34,16 +34,16 @@ Rules from C6 req 5:
 - **SPF**: a TXT record that lists which servers may send mail for a name.
 - **MAIL FROM** (also called Return-Path): the hidden address that bounces go back to. It is not the From address the student sees.
 - **DMARC**: a TXT record that tells receiving mail servers what to do with mail that fails the DKIM and SPF checks.
-- **Configuration set**: a named group of SES sending settings. Ours keeps the tutor's mail apart from flynorth's.
+- **Configuration set**: a named group of SES sending settings. Ours holds the tutor's bounce and complaint handling.
 - **Sandbox**: the test mode every new SES Region starts in. It can only send to addresses you have verified.
 
-## Step 0. Find flynorth's Region and sandbox status
+## Step 0. Open the AWS account and pick the Region
 
-1. Sign in to the AWS console with the account that runs flynorth's SES.
+1. Create an AWS account for the tutor at https://aws.amazon.com and sign in to the console. (flynorth has no SES, so there is no existing account to use.)
 2. Open the SES console: https://console.aws.amazon.com/ses/
-3. Look at the Region name at the top right. Switch Regions until **Identities** (under Configuration) lists flynorth's identity.
-4. Write the Region code in the table above (for example `us-west-2`). Every step below uses this Region. Records differ by Region, so do not switch Regions later.
-5. Open **Account dashboard**. If you see the box "Your Amazon SES account is in the sandbox," this Region still needs step 6. If you do not see it, this Region already has production access. Skip step 6.
+3. Pick the Region at the top right. `us-west-2` (US West, Oregon) is suggested.
+4. Write the Region code in the table above. Every step below uses this Region. Records differ by Region, so do not switch Regions later.
+5. A new account starts in the sandbox (**Account dashboard** shows "Your Amazon SES account is in the sandbox"), so step 6 is needed.
 
 ## Step 1. Create the configuration set
 
@@ -127,7 +127,7 @@ Sandbox limits, per the docs: mail only to verified addresses and domains (or th
 3. Choose **Submit request**. The docs say AWS Support first answers within 96 hours. You cannot edit the request during review.
 4. The docs' form has no box for a description, but AWS often asks one by email. A ready answer:
 
-   > North Aero Ground Tutor is a paid study app for student pilots at ground.flynorthaero.com. We send two kinds of transactional email from reports@ground.flynorthaero.com: a short report after each study session, and a weekly summary. A student turns each kind on or off in the app and chooses the address. Every email has an unsubscribe link. Volume is low: a few messages per student per week. Bounces and complaints are handled through the SES suppression list and our configuration set, and an address that bounces or complains stops getting reports.
+   > North Aero Ground Tutor is a paid study app for student pilots at ground.flynorthaero.com. We send only transactional email: a sign-up and plan-change confirmation, a notice 30 days before an annual plan renews (required by California's automatic renewal law), and, for students who turn them on in the app, a short report after each study session and a weekly summary. Mail comes from billing@ground.flynorthaero.com and reports@ground.flynorthaero.com. Report emails have an unsubscribe link. Volume is low: a few messages per student per week. Bounces and complaints go to the SES suppression list through our configuration set, so we stop mailing those addresses.
 
    Before you send this text, check that it still matches what P6-03 to P6-05 build (the unsubscribe link and the bounce handling).
 
@@ -160,7 +160,7 @@ Update (W2-10, 2026-11-08): the permission, the Railway variable names, the supp
 
 For P6-03, the facts the sending code needs:
 
-- From `reports@ground.flynorthaero.com`, Reply-To `info@flynorthaero.com`. A verified domain covers every address in it, so `reports@` needs no separate verification. SES requires verification only for the From, Source, Sender and Return-Path addresses, so the Reply-To address needs none.
+- From `reports@ground.flynorthaero.com` or `billing@ground.flynorthaero.com`, Reply-To `info@flynorthaero.com`. A verified domain covers every address in it, so `reports@` and `billing@` need no separate verification. SES requires verification only for the From, Source, Sender and Return-Path addresses, so the Reply-To address needs none.
 - The identity's default configuration set applies when the code names no set. To name it anyway, pass the configuration set in the API call or add the header `X-SES-CONFIGURATION-SET: ground-tutor-reports`.
 
 ## Sources (Amazon SES Developer Guide, read 2026-11-08)
