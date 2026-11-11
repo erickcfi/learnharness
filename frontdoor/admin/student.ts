@@ -72,17 +72,20 @@ export async function buildStudentDetail(
 	const sessions: StudentSession[] = ids.map((chatId) => {
 		const c = liveBy.get(chatId);
 		const s = studyBy.get(chatId);
-		const l = labelBy.get(chatId);
+		const found = labelBy.get(chatId);
+		// isAviation null: the tutor had no such chat when the sweep asked (flags.ts).
+		const missing = found?.isAviation === null;
+		const l = missing ? undefined : found;
 		const stored = l?.topic.split(" | ")[1];
 		return {
 			chatId,
-			title: c?.title ?? l?.topic.split(" | ")[0] ?? null,
+			title: c?.title ?? l?.topic.split(" | ")[0] ?? (missing ? "Session not found in the tutor" : null),
 			createdAt: c?.createdAt ?? null,
 			phase: c?.phase ?? null,
 			kind: c?.kind ?? null,
 			activeSeconds: s?.activeSeconds ?? 0,
 			lastActiveAt: s?.lastActiveAt ?? null,
-			topics: stored ? stored.split("; ") : l ? [] : null,
+			topics: stored ? stored.split("; ") : l || missing ? [] : null,
 			isAviation: l ? l.isAviation : null,
 		};
 	});

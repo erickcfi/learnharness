@@ -9,12 +9,19 @@
  *
  * The call goes straight to Anthropic with the front door's own key: the
  * student did not cause it, so it is not metered to the student.
+ *
+ * A chat the tenant server does not have (deleted, or never saved) gets a
+ * row with no label (is_aviation null, model CHAT_NOT_FOUND), so the sweep
+ * stops asking for it until it is studied again (master, 2026-11-10).
  */
 import { type Db, getTopicLabel, saveTopicLabel } from "../db/index.ts";
 import { listEndedSessions } from "../study-time/queries.ts";
-import { fetchSessionTopics, type TenantFetch } from "./tenant-api.ts";
+import { fetchSessionTopics, type TenantFetch, TenantReadError } from "./tenant-api.ts";
 
 export const FLAG_MODEL = "claude-haiku-5-5";
+
+/** topic_labels.model for a chat the tenant server answered 404 for: no label was made. */
+export const CHAT_NOT_FOUND = "none: chat not found";
 
 export const FLAG_SYSTEM_PROMPT =
 	"You sort study topics for a flight school's ground tutor. Reply with one word: aviation or other. " +
@@ -88,6 +95,9 @@ export interface LabelRun {
 	nonAviation: number;
 	/** Studied again with the same title and plan topics: the old label stands, no call. */
 	unchanged: number;
+	/** The tenant server has no such chat: stored with no label, not asked for again until studied again. */
+	missing: number;
+	/** Could not finish (unclear answer, server down): tried again at the next sweep. */
 	skipped: number;
 }
 
@@ -107,12 +117,24 @@ export async function labelEndedSessions(deps: {
 }): Promise<LabelRun> {
 	const now = deps.now ? deps.now() : new Date();
 	const ended = await listEndedSessions(deps.db, { now, unlabeledOnly: true, limit: deps.limit ?? 50 });
-	const run: LabelRun = { labeled: 0, nonAviation: 0, unchanged: 0, skipped: 0 };
+	const run: LabelRun = { labeled: 0, nonAviation: 0, unchanged: 0, missing: 0, skipped: 0 };
 	for (const session of ended) {
 		try {
-			const topic = await fetchSessionTopics(deps.tenantFetch, session.tenantId, session.chatId);
+			let topic: SessionTopic;
+			try {
+				topic = await fetchSessionTopics(deps.tenantFetch, session.tenantId, session.chatId);
+			} catch (error) {
+				if (!(error instanceof TenantReadError && error.status === 404)) throw error;
+				// No such chat on the tenant server. Without a row the sweep would
+				// ask for it every 5 minutes forever, and 50 of them would fill
+				// every sweep and stop labeling for all students.
+				await saveTopicLabel(deps.db, { tenantId: session.tenantId, chatId: session.chatId, topic: "", isAviation: null, model: CHAT_NOT_FOUND, at: now });
+				run.missing += 1;
+				deps.log?.(`non-aviation label for tenant ${session.tenantId} chat ${session.chatId} not made: the tenant server has no such chat; not asked for again unless it is studied again`);
+				continue;
+			}
 			const previous = await getTopicLabel(deps.db, session.tenantId, session.chatId);
-			if (previous && previous.topic === storedTopic(topic)) {
+			if (previous && previous.isAviation !== null && previous.topic === storedTopic(topic)) {
 				await saveTopicLabel(deps.db, { tenantId: session.tenantId, chatId: session.chatId, topic: previous.topic, isAviation: previous.isAviation, model: previous.model, at: now });
 				run.unchanged += 1;
 				continue;

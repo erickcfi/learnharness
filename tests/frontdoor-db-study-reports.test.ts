@@ -146,4 +146,13 @@ describe("topic labels (C7 req 4, N7)", () => {
 		assert.equal(c2?.isAviation, false);
 		assert.equal(await dbm.getTopicLabel(t.db, tn.id, "nope"), null);
 	});
+
+	it("keeps no label (null) for a chat the tenant server did not have, and replaces it with a real one later", async () => {
+		const tn = await tenant();
+		const gone = await dbm.saveTopicLabel(t.db, { tenantId: tn.id, chatId: "gone", topic: "", isAviation: null, model: "none: chat not found" });
+		assert.equal(gone.isAviation, null);
+		assert.equal((await dbm.getTopicLabel(t.db, tn.id, "gone"))?.isAviation, null);
+		await dbm.saveTopicLabel(t.db, { tenantId: tn.id, chatId: "gone", topic: "Back again", isAviation: false, model: "claude-haiku-5-5" });
+		assert.equal((await dbm.getTopicLabel(t.db, tn.id, "gone"))?.isAviation, false);
+	});
 });
