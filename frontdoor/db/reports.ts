@@ -139,7 +139,8 @@ export interface TopicLabel {
 	tenantId: string;
 	chatId: string;
 	topic: string;
-	isAviation: boolean;
+	/** Haiku's label. null: the tenant server had no such chat, so there is no label (admin/flags.ts). */
+	isAviation: boolean | null;
 	model: string;
 	labeledAt: Date;
 }
@@ -151,14 +152,14 @@ function toLabel(r: Row): TopicLabel {
 		tenantId: String(r.tenant_id),
 		chatId: String(r.chat_id),
 		topic: String(r.topic),
-		isAviation: Boolean(r.is_aviation),
+		isAviation: r.is_aviation === null || r.is_aviation === undefined ? null : Boolean(r.is_aviation),
 		model: String(r.model),
 		labeledAt: date(r.labeled_at),
 	};
 }
 
 /** Save the label for a session, replacing an earlier one. */
-export async function saveTopicLabel(db: Db, l: { tenantId: string; chatId: string; topic: string; isAviation: boolean; model: string; at?: Date }): Promise<TopicLabel> {
+export async function saveTopicLabel(db: Db, l: { tenantId: string; chatId: string; topic: string; isAviation: boolean | null; model: string; at?: Date }): Promise<TopicLabel> {
 	return toLabel(
 		await must(
 			db,

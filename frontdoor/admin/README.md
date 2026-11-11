@@ -71,7 +71,7 @@ Conversion: of the students whose trial has ended, the share with a paid invoice
 
 ## The non-aviation flag (N7)
 
-`flags.ts`. A session has ended when its chat has had no study time for 30 minutes (`study-time/queries.ts`). Then `claude-haiku-5-5` labels it from the session title and plan topics only, never session text, with the front door's own Anthropic key (not metered to the student). Each chat is labeled once, and again only when its title or plan topics change (master, 2026-11-08). The label is stored in `topic_labels` and changes nothing in the tutor. The sweep runs every 5 minutes (`labelTopics: true` in `wiring/front-door.ts`).
+`flags.ts`. A session has ended when its chat has had no study time for 30 minutes (`study-time/queries.ts`). Then `claude-haiku-5-5` labels it from the session title and plan topics only, never session text, with the front door's own Anthropic key (not metered to the student). Each chat is labeled once, and again only when its title or plan topics change (master, 2026-11-08). The label is stored in `topic_labels` and changes nothing in the tutor. The sweep runs every 5 minutes (`labelTopics: true` in `wiring/front-door.ts`). If the student's tutor server answers 404 for the chat (deleted, or never saved), the sweep stores a row with no label (`is_aviation` null, model `none: chat not found`) and does not ask for it again unless it is studied again (master, 2026-11-10). Other failures, such as a server that is starting, are tried again at the next sweep.
 
 ## For the merge
 

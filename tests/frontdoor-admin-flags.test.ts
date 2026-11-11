@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { after, before, describe, it } from "node:test";
-import { FLAG_MODEL, FLAG_SYSTEM_PROMPT, flagUserPrompt, haikuClassifier, labelEndedSessions } from "../frontdoor/admin/flags.ts";
+import { CHAT_NOT_FOUND, FLAG_MODEL, FLAG_SYSTEM_PROMPT, flagUserPrompt, haikuClassifier, labelEndedSessions } from "../frontdoor/admin/flags.ts";
 import * as dbm from "../frontdoor/db/index.ts";
 import { createStudyTimeRecorder } from "../frontdoor/study-time/index.ts";
 import { type Fixture, startFixture } from "./frontdoor-admin-fixture.ts";
@@ -65,13 +65,13 @@ describe("labeling ended sessions", () => {
 
 	it("waits until the session has ended (30 minutes without study)", async () => {
 		const early = await labelEndedSessions({ db: f.db, tenantFetch: tenantFetchOf(f), classifier: classifier(), now: () => new Date(f.clock.now - 3600_000 + 10 * 60_000) });
-		assert.deepEqual(early, { labeled: 0, nonAviation: 0, unchanged: 0, skipped: 0 });
+		assert.deepEqual(early, { labeled: 0, nonAviation: 0, unchanged: 0, missing: 0, skipped: 0 });
 		assert.equal(sent.length, 0);
 	});
 
 	it("flags the seeded cooking session, and not the seeded METAR session", async () => {
 		const run = await labelEndedSessions({ db: f.db, tenantFetch: tenantFetchOf(f), classifier: classifier(), now: () => new Date(f.clock.now) });
-		assert.deepEqual(run, { labeled: 2, nonAviation: 1, unchanged: 0, skipped: 0 });
+		assert.deepEqual(run, { labeled: 2, nonAviation: 1, unchanged: 0, missing: 0, skipped: 0 });
 		const cookLabel = await dbm.getTopicLabel(f.db, cook.tenantId, "chat_cook_1");
 		const metarLabel = await dbm.getTopicLabel(f.db, pilot.tenantId, "chat_metar_1");
 		assert.equal(cookLabel?.isAviation, false);
@@ -96,17 +96,17 @@ describe("labeling ended sessions", () => {
 	it("labels each chat once, and again only when its title or plan topics change", async () => {
 		sent.length = 0;
 		const sweep = (min: number) => labelEndedSessions({ db: f.db, tenantFetch: tenantFetchOf(f), classifier: classifier(), now: () => new Date(f.clock.now + min * 60_000) });
-		assert.deepEqual(await sweep(0), { labeled: 0, nonAviation: 0, unchanged: 0, skipped: 0 }, "nothing new");
+		assert.deepEqual(await sweep(0), { labeled: 0, nonAviation: 0, unchanged: 0, missing: 0, skipped: 0 }, "nothing new");
 
 		await studied(cook.tenantId, "chat_cook_1", f.clock.now + 60_000);
-		assert.deepEqual(await sweep(40), { labeled: 0, nonAviation: 0, unchanged: 1, skipped: 0 }, "studied again, same topics: no call");
+		assert.deepEqual(await sweep(40), { labeled: 0, nonAviation: 0, unchanged: 1, missing: 0, skipped: 0 }, "studied again, same topics: no call");
 		assert.equal(sent.length, 0);
 		assert.equal((await dbm.getTopicLabel(f.db, cook.tenantId, "chat_cook_1"))?.isAviation, false, "the old label stands");
-		assert.deepEqual(await sweep(41), { labeled: 0, nonAviation: 0, unchanged: 0, skipped: 0 }, "not checked again until studied again");
+		assert.deepEqual(await sweep(41), { labeled: 0, nonAviation: 0, unchanged: 0, missing: 0, skipped: 0 }, "not checked again until studied again");
 
 		f.chats.set(cook.tenantId, [{ id: "chat_cook_1", title: "Weather for a cross-country", topics: ["Fronts", "Wind"], markdown: PRIVATE }]);
 		await studied(cook.tenantId, "chat_cook_1", f.clock.now + 50 * 60_000);
-		assert.deepEqual(await sweep(90), { labeled: 1, nonAviation: 0, unchanged: 0, skipped: 0 }, "topics changed: one new call");
+		assert.deepEqual(await sweep(90), { labeled: 1, nonAviation: 0, unchanged: 0, missing: 0, skipped: 0 }, "topics changed: one new call");
 		assert.equal(sent.length, 1);
 		const now = await dbm.getTopicLabel(f.db, cook.tenantId, "chat_cook_1");
 		assert.equal(now?.isAviation, true);
@@ -142,20 +142,95 @@ describe("when labeling cannot finish", () => {
 		assert.equal((await dbm.getTopicLabel(f.db, s.tenantId, "chat_u_1"))?.isAviation, true);
 	});
 
-	it("a tenant server that does not answer is skipped, and the log names no topic", async () => {
+	it("a tenant server that does not answer is skipped and asked again at the next sweep, and the log names no topic", async () => {
 		const s = await f.student("flag_down");
-		await studied(s.tenantId, "chat_missing", f.clock.now - 3600_000);
+		f.chats.set(s.tenantId, [{ id: "chat_down_1", title: "Crosswind landings", topics: ["Crab", "Slip"], markdown: PRIVATE }]);
+		await studied(s.tenantId, "chat_down_1", f.clock.now - 3600_000);
+		const hits = () => f.tenantHits.filter(([t, p]) => t === s.tenantId && p === "/api/chats/chat_down_1").length;
+		let down = true;
+		const tenantFetch = async (tenantId: string, p: string) => {
+			if (!down || tenantId !== s.tenantId) return tenantFetchOf(f)(tenantId, p);
+			f.tenantHits.push([tenantId, p]);
+			return new Response("starting", { status: 503 });
+		};
 		const logs: string[] = [];
-		const run = await labelEndedSessions({
+		const sweep = () =>
+			labelEndedSessions({
+				db: f.db,
+				tenantFetch,
+				classifier: haikuClassifier({ apiKey: "k", baseUrl: anthropicUrl }),
+				now: () => new Date(f.clock.now),
+				log: (l) => logs.push(l),
+			});
+		answer = (prompt) => (/crosswind|wind/i.test(prompt) ? "aviation" : "other");
+		const run = await sweep();
+		assert.ok(run.skipped >= 1);
+		assert.equal(run.missing, 0, "a 503 is not a missing chat");
+		assert.ok(logs.some((l) => l.includes("chat_down_1") && l.includes("503")));
+		assert.ok(logs.every((l) => !/Crosswind|Crab|Slip/.test(l)), "no title or topic in the log");
+		assert.equal(await dbm.getTopicLabel(f.db, s.tenantId, "chat_down_1"), null);
+		assert.equal(hits(), 1);
+
+		down = false;
+		await sweep();
+		assert.equal(hits(), 2, "asked again");
+		assert.equal((await dbm.getTopicLabel(f.db, s.tenantId, "chat_down_1"))?.isAviation, true);
+	});
+});
+
+describe("a chat the tutor no longer has", () => {
+	let s: { tenantId: string };
+	const hits = () => f.tenantHits.filter(([t, p]) => t === s.tenantId && p === "/api/chats/chat_gone_1").length;
+	const logs: string[] = [];
+	const sweep = (min = 0) =>
+		labelEndedSessions({
 			db: f.db,
 			tenantFetch: tenantFetchOf(f),
 			classifier: haikuClassifier({ apiKey: "k", baseUrl: anthropicUrl }),
-			now: () => new Date(f.clock.now),
+			now: () => new Date(f.clock.now + min * 60_000),
 			log: (l) => logs.push(l),
 		});
-		assert.ok(run.skipped >= 1);
-		assert.ok(logs.some((l) => l.includes("chat_missing")));
-		assert.equal(await dbm.getTopicLabel(f.db, s.tenantId, "chat_missing"), null);
+
+	before(async () => {
+		s = await f.student("flag_gone");
+		// Studied, then deleted: the stand-in tenant server answers 404 for it.
+		f.chats.set(s.tenantId, []);
+		await studied(s.tenantId, "chat_gone_1", f.clock.now - 3600_000);
+	});
+
+	it("is stored once with no label, and the sweep stops asking for it", async () => {
+		const first = await sweep();
+		assert.equal(first.missing, 1);
+		assert.equal(first.skipped, 0);
+		const row = await dbm.getTopicLabel(f.db, s.tenantId, "chat_gone_1");
+		assert.equal(row?.isAviation, null);
+		assert.equal(row?.model, CHAT_NOT_FOUND);
+		assert.equal(row?.topic, "");
+		assert.equal(hits(), 1);
+		assert.equal(logs.filter((l) => l.includes("chat_gone_1")).length, 1, "one log line, not one every 5 minutes");
+
+		for (const min of [5, 10, 15]) assert.deepEqual(await sweep(min), { labeled: 0, nonAviation: 0, unchanged: 0, missing: 0, skipped: 0 });
+		assert.equal(hits(), 1, "not asked for again");
+	});
+
+	it("does not count as aviation or not aviation on the dashboard", async () => {
+		const res = await fetch(`${f.base}/admin/api/overview?period=all`, { headers: { Cookie: await f.cookie(f.owner.clerkUserId) } });
+		const o = (await res.json()) as { rows: Array<{ tenantId: string; nonAviationSessions: number; recentTopics: string[] }> };
+		const row = o.rows.find((r) => r.tenantId === s.tenantId);
+		assert.equal(row?.nonAviationSessions, 0);
+		assert.deepEqual(row?.recentTopics, []);
+	});
+
+	it("is asked for again if it is studied again, and labeled if it is back", async () => {
+		f.chats.set(s.tenantId, [{ id: "chat_gone_1", title: "Reading a METAR", topics: ["Wind"], markdown: PRIVATE }]);
+		await studied(s.tenantId, "chat_gone_1", f.clock.now + 30 * 60_000);
+		answer = (prompt) => (/METAR|wind/i.test(prompt) ? "aviation" : "other");
+		const run = await sweep(70);
+		assert.equal(run.labeled, 1);
+		assert.equal(hits(), 2);
+		const row = await dbm.getTopicLabel(f.db, s.tenantId, "chat_gone_1");
+		assert.equal(row?.isAviation, true);
+		assert.equal(row?.model, FLAG_MODEL);
 	});
 });
 

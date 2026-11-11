@@ -126,8 +126,8 @@ async function tenantMeta(db: Db, now: Date): Promise<Map<string, TenantMeta>> {
 		        exists (select 1 from subscriptions s where s.tenant_id = t.id and s.trial_start is not null) as trial_started,
 		        exists (select 1 from subscriptions s where s.tenant_id = t.id and s.trial_end is not null and s.trial_end <= $1) as trial_ended,
 		        exists (select 1 from invoices i where i.tenant_id = t.id and i.status = 'paid' and i.amount_paid_cents > 0) as paid,
-		        (select count(*) from topic_labels l where l.tenant_id = t.id and not l.is_aviation) as non_aviation,
-		        coalesce((select string_agg(x.topic, E'\\n') from (select topic from topic_labels l where l.tenant_id = t.id order by l.labeled_at desc limit 3) x), '') as topics
+		        (select count(*) from topic_labels l where l.tenant_id = t.id and l.is_aviation = false) as non_aviation,
+		        coalesce((select string_agg(x.topic, E'\\n') from (select topic from topic_labels l where l.tenant_id = t.id and l.is_aviation is not null order by l.labeled_at desc limit 3) x), '') as topics
 		 from tenants t join accounts a on a.id = t.account_id`,
 		[now],
 	);

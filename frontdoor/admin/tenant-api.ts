@@ -28,11 +28,18 @@ export function supervisorTenantFetch(supervisor: { ensureRunning(tenantId: stri
 	};
 }
 
-export class TenantReadError extends Error {}
+export class TenantReadError extends Error {
+	/** The tenant server's HTTP status, when it answered. 404 on a chat path: no such chat. */
+	readonly status: number | null;
+	constructor(message: string, status: number | null = null) {
+		super(message);
+		this.status = status;
+	}
+}
 
 async function getJson(tenantFetch: TenantFetch, tenantId: string, path: string): Promise<unknown> {
 	const res = await tenantFetch(tenantId, path);
-	if (!res.ok) throw new TenantReadError(`tenant server answered ${res.status}`);
+	if (!res.ok) throw new TenantReadError(`tenant server answered ${res.status}`, res.status);
 	return res.json();
 }
 
@@ -55,6 +62,6 @@ export async function fetchSessionTopics(tenantFetch: TenantFetch, tenantId: str
 export async function fetchSessionMarkdownUnchecked(tenantFetch: TenantFetch, tenantId: string, chatId: string): Promise<string> {
 	if (!CHAT_ID.test(chatId)) throw new TenantReadError("not a chat id");
 	const res = await tenantFetch(tenantId, `/api/chats/${encodeURIComponent(chatId)}/markdown`);
-	if (!res.ok) throw new TenantReadError(`tenant server answered ${res.status}`);
+	if (!res.ok) throw new TenantReadError(`tenant server answered ${res.status}`, res.status);
 	return res.text();
 }
