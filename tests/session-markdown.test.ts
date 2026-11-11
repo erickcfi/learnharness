@@ -88,7 +88,7 @@ describe("messageMarkdown", () => {
 		assert.match(md, /^### Quiz · r1$/m);
 		assert.match(md, /\*\*Q:\*\* What is a derivative\?/);
 		assert.match(md, /The learner answered incorrectly\./);
-		assert.match(md, /\*\(his thinking: mixed up signs\)\*/);
+		assert.match(md, /\*\(their thinking: mixed up signs\)\*/);
 	});
 
 	it("explain results: the learner's own words are shown", () => {
@@ -97,7 +97,7 @@ describe("messageMarkdown", () => {
 			"r1",
 		)!;
 		assert.match(md, /^### Recall check · r1$/m);
-		assert.match(md, /The learner answered in his own words: it never strays far/);
+		assert.match(md, /The learner answered in their own words: it never strays far/);
 	});
 
 	it("probe-phase questions export under their own names (owner, 2026-10-09)", () => {
@@ -125,6 +125,46 @@ describe("messageMarkdown", () => {
 			"r2",
 		)!;
 		assert.match(free, /The learner answered: because/);
+	});
+
+	it("ask blocks from a real answer record: option labels, never [object Object] (fork fix, 2026-11-10)", () => {
+		// The shape question-core.ts buildAnswer() stores: each choice is
+		// { label, value, index }, and the reasoning is `thinking`.
+		const md = messageMarkdown(
+			result("r1", "a1", "ask_user_question", {
+				kind: "ask",
+				questionText: "Which part of lost comms is giving you trouble?",
+				options: [
+					{ index: 1, label: "Which altitude to fly" },
+					{ index: 2, label: "When to leave the holding fix" },
+				],
+				dontKnow: false,
+				answers: [
+					{ label: "Which altitude to fly", value: "altitude", index: 1 },
+					{ label: "When to leave the holding fix", value: "leave", index: 2 },
+				],
+				thinking: "MEA changes confuse me",
+				answeredAt: "2026-11-09T18:00:00.000Z",
+			}),
+			"r1",
+		)!;
+		assert.doesNotMatch(md, /object Object/);
+		assert.match(md, /The learner chose: Which altitude to fly, When to leave the holding fix/);
+		assert.match(md, /\*\(their thinking: MEA changes confuse me\)\*/);
+	});
+
+	it("thinking on a check: the current `thinking` key, and `note` on old records", () => {
+		const current = messageMarkdown(
+			result("r1", "q1", "quiz", { questionText: "Q?", correct: true, dontKnow: false, thinking: "elimination" }),
+			"r1",
+		)!;
+		assert.match(current, /\*\(their thinking: elimination\)\*/);
+		const both = messageMarkdown(
+			result("r2", "q2", "quiz", { questionText: "Q?", correct: true, dontKnow: false, thinking: "new", note: "old" }),
+			"r2",
+		)!;
+		assert.match(both, /their thinking: new/);
+		assert.doesNotMatch(both, /their thinking: old/);
 	});
 
 	it("other clean tool results: one line; failed calls and markers: nothing", () => {
