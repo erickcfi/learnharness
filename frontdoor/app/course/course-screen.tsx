@@ -29,16 +29,16 @@ function Leg({ leg, canStart }: { leg: LegView; canStart: boolean }) {
 			<div>{leg.outcome}</div>
 			<div style={muted}>{C.keyPoints(leg.keyPointCount)}</div>
 			<div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
-				{leg.started && (
-					<a href={`/chat/${encodeURIComponent(leg.started.chatId)}`} style={linkButton}>
+				{leg.continueChatId && (
+					<a href={`/chat/${encodeURIComponent(leg.continueChatId)}`} style={linkButton}>
 						{C.continue}
 					</a>
 				)}
 				{canStart && (
 					<form method="post" action="/course/start" style={{ margin: 0 }}>
 						<input type="hidden" name="leg" value={leg.id} />
-						<button type="submit" style={leg.started ? quietButton : button}>
-							{leg.started ? C.startAgain : C.start}
+						<button type="submit" style={leg.continueChatId ? quietButton : button}>
+							{leg.continueChatId ? C.startAgain : C.start}
 						</button>
 					</form>
 				)}

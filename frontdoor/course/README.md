@@ -43,7 +43,9 @@ The repo is public and the curriculum is not. Real course data is never committe
 
 ## Started marks (`marks.ts`)
 
-`/course` shows "Started" on a Leg the student started, with "Continue" (the newest chat) and "Start again". "Done" is out of scope for now. Table `course_leg_starts`, migration `frontdoor/supabase/migrations/20261111000100_course_leg_starts.sql`, which needs the Owner's yes before it is applied. Until then the page works with no marks and logs one line.
+`/course` shows "Started" on a Leg the student started, with "Continue" (the newest chat) and "Start again". "Done" is out of scope for now.
+
+A student can delete a chat in the tutor. So the page reads the student's chat list once (`live-chats.ts`: `GET /api/chats` on their own server, with its secret, as the dashboard does). "Continue" opens the newest chat for the Leg that still exists. If none is left, the Leg keeps "Started" and offers "Start lesson" again. If the tutor server does not answer within 5 seconds, "Continue" opens the newest chat, as before. Table `course_leg_starts`, migration `frontdoor/supabase/migrations/20261111000100_course_leg_starts.sql`, which needs the Owner's yes before it is applied. Until then the page works with no marks and logs one line.
 
 ## When a lesson cannot start (`blocks.ts`)
 
@@ -60,6 +62,7 @@ Cards fallback (Erick, 2026-11-11): pre-written question cards are a fallback on
 | `first-message.ts` | The lesson's first message. |
 | `source.ts` | Reads the course file from the library volume. |
 | `marks.ts` | Started marks, safe without the table. |
+| `live-chats.ts` | Which chats still exist, so "Continue" skips deleted ones. |
 | `blocks.ts` | Paused or budget cap: no new lesson. |
 | `endpoint.ts` | `/course` and `/course/start` for the gateway. |
 | `view.ts`, `registry.ts`, `index.ts` | The page's data, the runtime the Next.js page reads, and the wiring. |

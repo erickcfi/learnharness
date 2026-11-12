@@ -19,7 +19,8 @@ import type { StartBlock, StartBlockCheck } from "../frontdoor/course/blocks.ts"
 import { BLOCK_COPY, COURSE_COPY } from "../frontdoor/course/copy.ts";
 import { COURSE_FILE_NAME } from "../frontdoor/course/file.ts";
 import { courseRuntime } from "../frontdoor/course/index.ts";
-import type { LatestStart, LegStartMarks } from "../frontdoor/course/marks.ts";
+import type { LiveChats } from "../frontdoor/course/live-chats.ts";
+import type { LegStartMarks, StartMark } from "../frontdoor/course/marks.ts";
 import { getCourseRuntime } from "../frontdoor/course/registry.ts";
 import { libraryCourseSource } from "../frontdoor/course/source.ts";
 import { courseRedirect, courseView, type CoursePageState, type ShownCoursePage } from "../frontdoor/course/view.ts";
@@ -44,13 +45,22 @@ async function cookieFor(userId: string, tenant: string, secret = SECRET): Promi
 	return `${SESSION_COOKIE}=${await signSession({ userId, sessionId: "sess_c", tenantId: tenant, checkedAt: NOW }, secret, NOW)}`;
 }
 
-function marksOf(entries: Record<string, LatestStart>): LegStartMarks {
-	return { record: async () => {}, latestByLeg: async () => new Map(Object.entries(entries)) };
+/** Starts per Leg id, newest first (one start or a list). */
+function marksOf(entries: Record<string, StartMark | StartMark[]>): LegStartMarks {
+	return { record: async () => {}, startsByLeg: async () => new Map(Object.entries(entries).map(([legId, starts]) => [legId, Array.isArray(starts) ? starts : [starts]])) };
 }
 
-function runtimeWith(opts: { accounts?: AccountStore; marks?: LegStartMarks; block?: StartBlock | null } = {}) {
+function runtimeWith(opts: { accounts?: AccountStore; marks?: LegStartMarks; block?: StartBlock | null; liveChats?: LiveChats } = {}) {
 	const startBlock: StartBlockCheck = async () => opts.block ?? null;
-	return courseRuntime({ accounts: opts.accounts ?? accounts, sessionSecret: SECRET, now: () => NOW, source: libraryCourseSource(library), marks: opts.marks ?? marksOf({}), startBlock });
+	return courseRuntime({
+		accounts: opts.accounts ?? accounts,
+		sessionSecret: SECRET,
+		now: () => NOW,
+		source: libraryCourseSource(library),
+		marks: opts.marks ?? marksOf({}),
+		startBlock,
+		...(opts.liveChats ? { liveChats: opts.liveChats } : {}),
+	});
 }
 
 function putCourseFile(): void {
@@ -146,6 +156,43 @@ describe("/course without and with a course file", () => {
 		assert.equal(first?.querySelector("button")?.textContent, COURSE_COPY.startAgain);
 		assert.match(page.querySelector("summary")?.textContent ?? "", /1 of 2 started/);
 		assert.equal([...page.querySelectorAll("li")][1]?.textContent?.includes("Started"), false);
+	});
+
+	it("Continue skips chats deleted in the tutor; with none left, Started stays and Start lesson is back", async () => {
+		const marks = marksOf({
+			"folding-the-dart": [
+				{ chatId: "chat_new", startedAt: new Date(NOW) },
+				{ chatId: "chat_old", startedAt: new Date(NOW - 3600_000) },
+			],
+			"throwing-level": { chatId: "chat_gone", startedAt: new Date(NOW) },
+		});
+		const asked: string[] = [];
+		const liveChats: LiveChats = async (tenant) => {
+			asked.push(tenant);
+			return new Set(["chat_old"]);
+		};
+		const state = await runtimeWith({ marks, liveChats }).page(await cookieFor("user_course", tenantId));
+		assert.deepEqual(asked, [tenantId], "one read of the chat list per page");
+		const page = doc(<CourseScreen state={state as ShownCoursePage} />);
+		const [first, second] = [...page.querySelectorAll("li")];
+		assert.equal(first?.querySelector("a")?.getAttribute("href"), "/chat/chat_old");
+		assert.equal(first?.querySelector("button")?.textContent, COURSE_COPY.startAgain);
+		assert.match(second?.textContent ?? "", /Throwing level\s*Started/);
+		assert.equal(second?.querySelector("a"), null, "no Continue to a deleted chat");
+		assert.equal(second?.querySelector("button")?.textContent, COURSE_COPY.start);
+		assert.match(page.querySelector("summary")?.textContent ?? "", /2 of 2 started/);
+
+		const down = await runtimeWith({ marks, liveChats: async () => null }).page(await cookieFor("user_course", tenantId));
+		const links = [...doc(<CourseScreen state={down as ShownCoursePage} />).querySelectorAll("li a")].map((a) => a.getAttribute("href"));
+		assert.deepEqual(links, ["/chat/chat_new", "/chat/chat_gone"], "tenant server down: the newest start, as before");
+
+		let calls = 0;
+		const counted: LiveChats = async () => {
+			calls++;
+			return null;
+		};
+		await runtimeWith({ liveChats: counted }).page(await cookieFor("user_course", tenantId));
+		assert.equal(calls, 0, "no starts: the tenant server is not asked");
 	});
 
 	it("shows a plain sentence instead of Start while paused or at a budget cap", async () => {

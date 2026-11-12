@@ -103,7 +103,7 @@ Sources: [Actions, resources, and condition keys for Amazon SES v2](https://docs
 
 | Name | What it is for | Secret | Required |
 |---|---|---|---|
-| `SES_REGION` | The AWS Region of the tutor's SES, for example `us-west-2` (SES checklist, step 0) | No | To send email |
+| `SES_REGION` | The AWS Region of the tutor's SES, for example `us-east-2` (SES checklist, step 0) | No | To send email |
 | `SES_ACCESS_KEY_ID` | The IAM user's access key ID | Yes | To send email |
 | `SES_SECRET_ACCESS_KEY` | The IAM user's secret access key | Yes | To send email |
 | `FRONTDOOR_PUBLIC_URL` | The site address in email links. Default `https://ground.flynorthaero.com`. Staging sets its own address | No | Staging only |

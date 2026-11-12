@@ -11,6 +11,7 @@ import { SESSION_COOKIE, verifySession } from "../gateway/session.ts";
 import type { AccountStore } from "../tenants/accounts.ts";
 import { databaseStartBlock, noStartBlock, type StartBlockCheck } from "./blocks.ts";
 import { type CourseEndpoint, createCourseEndpoint, type TenantRequest } from "./endpoint.ts";
+import { type LiveChats, tenantLiveChats } from "./live-chats.ts";
 import { type LegStartMarks, legStartMarks } from "./marks.ts";
 import { getCourseRuntime, registerCourseRuntime, type CourseRuntime } from "./registry.ts";
 import { type CourseSource, libraryCourseSource } from "./source.ts";
@@ -40,8 +41,14 @@ export interface Course {
 	close(): void;
 }
 
-/** The page's own login and 18+ check, then the view. */
-export function courseRuntime(options: Pick<CourseOptions, "accounts" | "sessionSecret" | "now"> & { source: CourseSource; marks: LegStartMarks; startBlock: StartBlockCheck }): CourseRuntime {
+/**
+ * The page's own login and 18+ check, then the view. `liveChats` lets
+ * Continue skip chats the student deleted in the tutor; without it,
+ * Continue links the newest start.
+ */
+export function courseRuntime(
+	options: Pick<CourseOptions, "accounts" | "sessionSecret" | "now"> & { source: CourseSource; marks: LegStartMarks; startBlock: StartBlockCheck; liveChats?: LiveChats },
+): CourseRuntime {
 	const now = () => (options.now ? options.now() : Date.now());
 	return {
 		async page(cookieHeader) {
@@ -52,8 +59,10 @@ export function courseRuntime(options: Pick<CourseOptions, "accounts" | "session
 			if (!account.ageConfirmedAt) return { status: "confirm-age" };
 			const course = await options.source.load();
 			if (!course) return { status: "coming-soon" };
-			const [marks, block] = await Promise.all([options.marks.latestByLeg(session.tenantId), options.startBlock(session.tenantId)]);
-			return { status: "ready", course: courseView(course, marks, block) };
+			const [starts, block] = await Promise.all([options.marks.startsByLeg(session.tenantId), options.startBlock(session.tenantId)]);
+			// The tenant's chat list is read once per page, and only when there is a start to check.
+			const live = starts.size > 0 && options.liveChats ? await options.liveChats(session.tenantId) : null;
+			return { status: "ready", course: courseView(course, starts, block, live) };
 		},
 	};
 }
@@ -73,7 +82,8 @@ export function createCourse(options: CourseOptions): Course {
 		now: options.now,
 		log,
 	});
-	const runtime = courseRuntime({ accounts: options.accounts, sessionSecret: options.sessionSecret, now: options.now, source, marks, startBlock });
+	const liveChats = tenantLiveChats(options.tenantFetch, log);
+	const runtime = courseRuntime({ accounts: options.accounts, sessionSecret: options.sessionSecret, now: options.now, source, marks, startBlock, liveChats });
 	registerCourseRuntime(runtime);
 	return {
 		endpoint,
