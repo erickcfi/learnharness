@@ -15,6 +15,7 @@
  * stops asking for it until it is studied again (master, 2026-11-10).
  */
 import { type Db, getTopicLabel, saveTopicLabel } from "../db/index.ts";
+import { errorLabel } from "../log-hygiene/filter.ts";
 import { listEndedSessions } from "../study-time/queries.ts";
 import { fetchSessionTopics, type TenantFetch, TenantReadError } from "./tenant-api.ts";
 
@@ -157,7 +158,7 @@ export async function labelEndedSessions(deps: {
 		} catch (error) {
 			run.skipped += 1;
 			// Tenant and chat ids only: never a title or topic (cross-cutting req 3).
-			deps.log?.(`non-aviation label for tenant ${session.tenantId} chat ${session.chatId} not made: ${(error as Error).message}`);
+			deps.log?.(`non-aviation label for tenant ${session.tenantId} chat ${session.chatId} not made (${errorLabel(error)})`);
 		}
 	}
 	return run;
@@ -169,7 +170,7 @@ export function startFlagSweeper(deps: Parameters<typeof labelEndedSessions>[0] 
 	const tick = () => {
 		if (running) return;
 		running = labelEndedSessions(deps)
-			.catch((error: unknown) => deps.log?.(`non-aviation sweep failed: ${(error as Error).message}`))
+			.catch((error: unknown) => deps.log?.(`non-aviation sweep failed (${errorLabel(error)})`))
 			.finally(() => {
 				running = null;
 			});

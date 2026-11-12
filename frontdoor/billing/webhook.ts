@@ -37,6 +37,7 @@ import {
 } from "../db/index.ts";
 import { normalizeEmailAddress } from "../email/address.ts";
 import { InvalidEmailMessageError } from "../email/sender.ts";
+import { errorLabel } from "../log-hygiene/filter.ts";
 import type { PlanId } from "../plans/index.ts";
 import { COUPONS, isPlanId, planIdForLookupKey } from "./catalog.ts";
 import type { BillingCore } from "./core.ts";
@@ -66,7 +67,7 @@ export async function receiveWebhook(core: BillingCore, rawBody: Buffer, signatu
 		const outcome = await processStripeEventOnce(core.db, { id: event.id, type: event.type, createdAt: new Date(event.created * 1000) }, (tx) => applyEvent(core, tx, event, afterCommit));
 		if (outcome === "duplicate") return { status: 200, body: { received: true, duplicate: true } };
 	} catch (error) {
-		core.log(`stripe event ${event.id} (${event.type}) failed, Stripe will retry: ${(error as Error).message}`);
+		core.log(`stripe event ${event.id} (${event.type}) failed, Stripe will retry (${errorLabel(error)})`);
 		return { status: 500, body: { error: "Not processed. Stripe will retry." } };
 	}
 	try {
@@ -74,7 +75,7 @@ export async function receiveWebhook(core: BillingCore, rawBody: Buffer, signatu
 	} catch (error) {
 		// Forget the event so Stripe's retry runs it again (its writes are safe to repeat).
 		await core.db.query("delete from stripe_events where id = $1", [event.id]).catch(() => {});
-		core.log(`stripe event ${event.id} (${event.type}): retention step failed, Stripe will retry: ${(error as Error).message}`);
+		core.log(`stripe event ${event.id} (${event.type}): retention step failed, Stripe will retry (${errorLabel(error)})`);
 		return { status: 500, body: { error: "Not processed. Stripe will retry." } };
 	}
 	return { status: 200, body: { received: true } };
@@ -130,7 +131,7 @@ async function send(core: BillingCore, tenantId: string, message: EmailMessage):
 	} catch (error) {
 		// A bad address will never send: log it and go on. Anything else (SES down) fails the event, so Stripe retries.
 		if (error instanceof InvalidEmailMessageError) {
-			core.log(`billing email not sent (${error.message}): ${message.kind} for tenant ${tenantId}`);
+			core.log(`billing email not sent (${errorLabel(error)}): ${message.kind} for tenant ${tenantId}`);
 			return;
 		}
 		throw error;

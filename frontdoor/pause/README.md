@@ -58,6 +58,8 @@ For "trial time used up: show the plans, chats still readable" (C2 req 3), reuse
 | retention, 90 days over | "being deleted" screen | 403 | refused | 410 |
 | gone (deleted) | signed out | 401 | refused | signed out |
 
+The Owner's own account (the `owner` role, `isOwnerTenant` in `db/accounts.ts`) never reads as retention, so it never gets the plan-ended screen and the meter does not refuse it for that. A pause (autopause at $89, or the Owner's own) still applies to it, and its usage is metered and alerted like anyone's. Staff is not exempt.
+
 The screens are plain HTML from the front door: no script, no Clerk, nothing loaded from outside. If the access state cannot be read (database down, nothing remembered), requests pass through; the meter's own pause check fails closed.
 
 **Read your sessions (master, Q2):** the pause screen's first button is `GET /account/read-sessions`. It sets a cookie (`fd_read=paused`, 1 hour) and sends the student to `/`. Tutor pages then load for reading; new turns and jobs still fail at the meter with the approved message. The next full visit to `/` shows the screen again. The cookie grants nothing (a tutor that cannot take a turn), so it is not signed.
@@ -74,5 +76,5 @@ The screens are plain HTML from the front door: no script, no Clerk, nothing loa
 
 One timer in the front door, a tick every hour (the first a minute after start):
 
-- **day-91 delete (master, Q5):** every tenant whose 90 days are over, in this order: stop its server and delete its folder, key file and nightly copies; then its database rows; then its Clerk user. The Clerk user id goes on `<volume>/retention/pending-login-deletes.json` just before the rows go, so a Clerk outage is retried on the next run. Logs ids and counts only.
+- **day-91 delete (master, Q5):** every tenant whose 90 days are over, in this order: stop its server and delete its folder, key file and nightly copies; then its database rows; then its Clerk user. The Clerk user id goes on `<volume>/retention/pending-login-deletes.json` just before the rows go, so a Clerk outage is retried on the next run. Logs ids and counts only. The Owner's own tenant is never deleted or emptied: the job leaves it out and logs `day-91: tenant <id> belongs to the Owner; kept`.
 - **nightly copies (master, Q7):** once a night after 10:00 UTC, kept 7 nights.

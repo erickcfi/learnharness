@@ -238,6 +238,18 @@ export async function hasRole(db: Db, accountId: string, role: Role): Promise<bo
 	return (await one(db, "select 1 from account_roles where account_id = $1 and role = $2", [accountId, role])) !== null;
 }
 
+/**
+ * True when the tenant's account holds the owner role. The one check behind
+ * the Owner's exemptions (2026-11-11): the Owner's own tenant needs no
+ * subscription (billing/access.ts), never gets the plan-ended screen
+ * (pause/access.ts), and is never deleted by the day-91 job
+ * (retention/lifecycle.ts). It is still metered, and the cost alert and
+ * autopause still apply. Staff is not exempt.
+ */
+export async function isOwnerTenant(db: Db, tenantId: string): Promise<boolean> {
+	return (await one(db, "select 1 from tenants t join account_roles r on r.account_id = t.account_id where t.id = $1 and r.role = 'owner'", [tenantId])) !== null;
+}
+
 // ---- consents (C7 req 3, D19) ----
 
 /** Record a consent with its date. If one is already active, return it unchanged. */

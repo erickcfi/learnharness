@@ -37,6 +37,7 @@
 import type { IncomingMessage, OutgoingHttpHeaders, ServerResponse } from "node:http";
 import type { BillingGatewayHook } from "../billing/gateway-hook.ts";
 import type { CourseEndpoint } from "../course/endpoint.ts";
+import { errorLabel } from "../log-hygiene/filter.ts";
 import { isAlwaysPublicPath, LANDING_PATH } from "../marketing/public-paths.ts";
 import type { TenantGate } from "../pause/gate.ts";
 import type { AccountStore } from "../tenants/accounts.ts";
@@ -221,7 +222,7 @@ export function createGateway(deps: GatewayDeps): (req: IncomingMessage, res: Se
 			await deps.provision(tenantId);
 			await deps.supervisor.ensureRunning(tenantId);
 		} catch (error) {
-			deps.log?.(`tenant ${tenantId} could not start: ${(error as Error).message}`);
+			deps.log?.(`tenant ${tenantId} could not start (${errorLabel(error)})`);
 			return tutorUnavailable(res, false);
 		}
 		const session: FrontDoorSession = { userId: result.userId, sessionId: result.sessionId, tenantId, checkedAt: now() };
@@ -249,7 +250,7 @@ export function createGateway(deps: GatewayDeps): (req: IncomingMessage, res: Se
 			try {
 				active = await deps.clerk.isSessionActive(session.sessionId);
 			} catch (error) {
-				deps.log?.(`login re-check failed: ${(error as Error).message}`);
+				deps.log?.(`login re-check failed (${errorLabel(error)})`);
 				return sendJson(res, 503, { error: "The login check is unavailable. Try again in a minute." });
 			}
 			const account = active ? await deps.accounts.get(session.userId) : null;
@@ -284,7 +285,7 @@ export function createGateway(deps: GatewayDeps): (req: IncomingMessage, res: Se
 			if (deps.supervisor.endpoint) ({ port, headers: tenantHeaders } = await deps.supervisor.endpoint(current.tenantId));
 			else port = await deps.supervisor.ensureRunning(current.tenantId);
 		} catch (error) {
-			deps.log?.(`tenant ${current.tenantId} could not start: ${(error as Error).message}`);
+			deps.log?.(`tenant ${current.tenantId} could not start (${errorLabel(error)})`);
 			return tutorUnavailable(res, isApi(pathname));
 		}
 		passThrough(req, res, { port, path: target, proto: proto(req), setCookie, tenantHeaders, body: verdict.body });
@@ -327,7 +328,7 @@ export function createGateway(deps: GatewayDeps): (req: IncomingMessage, res: Se
 
 	return (req, res) => {
 		handle(req, res).catch((error: unknown) => {
-			deps.log?.(`front door error: ${(error as Error).message}`);
+			deps.log?.(`front door error (${errorLabel(error)})`);
 			if (!res.headersSent) sendJson(res, 500, { error: "Something went wrong." });
 			else res.destroy();
 		});

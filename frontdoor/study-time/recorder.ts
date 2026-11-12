@@ -8,6 +8,7 @@
  * most MAX_PENDING_SECONDS wait per student and chat.
  */
 import { addActiveStudyTime, type Db } from "../db/index.ts";
+import { errorLabel } from "../log-hygiene/filter.ts";
 import { createActivityCredit, STRETCH_GAP_SECONDS, type ActivityCredit } from "./credit.ts";
 
 const MAX_PENDING_SECONDS = 6 * 3600;
@@ -52,7 +53,7 @@ export function createStudyTimeRecorder(options: StudyTimeRecorderOptions): Stud
 					return 0;
 				}
 				pending.set(key, { tenantId, chatId, seconds });
-				options.log?.(`study time for tenant ${tenantId} not saved yet (${seconds}s waiting): ${(error as Error).message}`);
+				options.log?.(`study time for tenant ${tenantId} not saved yet (${seconds}s waiting; ${errorLabel(error)})`);
 				return 0;
 			}
 		},
