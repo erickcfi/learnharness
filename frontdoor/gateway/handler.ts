@@ -21,6 +21,10 @@
  *                         and Owner role checked there, 403 for anyone else
  *   /               GET   with no login: the landing page, from the front
  *                         door's app. With a login: the tutor, as below.
+ *   /course, /course/start  the guided course (frontdoor/course): the same
+ *                         login check, pause screen and trial gate as a
+ *                         tutor page, then the front door answers it
+ *                         instead of the tenant's server
  *   everything else       needs the login cookie. Without it, /api gets 401
  *                         and a page redirects to sign-in. With it, the
  *                         route table decides (W2-6, route-guard.ts), and
@@ -32,6 +36,7 @@
  */
 import type { IncomingMessage, OutgoingHttpHeaders, ServerResponse } from "node:http";
 import type { BillingGatewayHook } from "../billing/gateway-hook.ts";
+import type { CourseEndpoint } from "../course/endpoint.ts";
 import { isAlwaysPublicPath, LANDING_PATH } from "../marketing/public-paths.ts";
 import type { TenantGate } from "../pause/gate.ts";
 import type { AccountStore } from "../tenants/accounts.ts";
@@ -39,7 +44,7 @@ import type { ClerkGateway } from "./auth.ts";
 import { clearCookie, parseCookies, serializeCookie } from "./cookies.ts";
 import { passThrough } from "./passthrough.ts";
 import { FRONT_DOOR_PREFIX, safeReturnPath } from "./return-path.ts";
-import { guardRoute, studentRoutePolicy, type RoutePolicy } from "./route-guard.ts";
+import { type GuardVerdict, guardRoute, studentRoutePolicy, type RoutePolicy } from "./route-guard.ts";
 import {
 	AGE_COOKIE,
 	AGE_MAX_AGE_SECONDS,
@@ -83,6 +88,8 @@ export interface GatewayDeps {
 	studentRoutes?: { handles(pathname: string): boolean; handle(req: IncomingMessage, res: ServerResponse, tenantId: string, pathname: string): Promise<void> };
 	/** P3-01: /admin and everything under it (frontdoor/admin). Without it, /admin is 404. */
 	admin?: { handle(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> };
+	/** The guided course (frontdoor/course): /course and /course/start for a signed-in student. Without it, they pass to the tenant. */
+	course?: CourseEndpoint;
 }
 
 const MAX_FORM_BYTES = 4096;
@@ -257,8 +264,10 @@ export function createGateway(deps: GatewayDeps): (req: IncomingMessage, res: Se
 		if (deps.billing?.owns(pathname) && (await deps.billing.handle(req, res, billingCtx))) return;
 		// W2-9: study-time heartbeat (PD1) and the session-text switch, for this login's tenant.
 		if (deps.studentRoutes?.handles(pathname)) return deps.studentRoutes.handle(req, res, current.tenantId, pathname);
+		// The course's routes are the front door's own, not the tenant's, so the route table does not apply to them.
+		const course = deps.course?.handles(pathname) ? deps.course : undefined;
 		// W2-6: route blocks and the model lock (gateway/route-guard.ts).
-		const verdict = await guardRoute(req, pathname, deps.routePolicy ?? defaultPolicy);
+		const verdict: GuardVerdict = course ? { kind: "pass" } : await guardRoute(req, pathname, deps.routePolicy ?? defaultPolicy);
 		if (verdict.kind === "refuse") return sendJson(res, verdict.status, { error: verdict.message }, setCookie);
 		if (verdict.kind === "redirect-home") return redirect(res, 302, "/", setCookie);
 		// W2-7: paused, plan ended, or deleted (pause/gate.ts). Before the tenant's server is started.
@@ -266,6 +275,8 @@ export function createGateway(deps: GatewayDeps): (req: IncomingMessage, res: Se
 		if (deps.tenantGate && (await deps.tenantGate.handle(req, res, { tenantId: current.tenantId, userId: current.userId, pathname, setCookie, signOut }))) return;
 		// W2-8: the trial gate (plans screen, 402 on new turns), after the pause and plan-ended screens.
 		if (deps.billing && !deps.billing.owns(pathname) && (await deps.billing.handle(req, res, billingCtx))) return;
+		// The guided course (frontdoor/course), after the same gates as a tutor page.
+		if (course) return course.handle(req, res, { tenantId: current.tenantId, pathname, target, setCookie });
 
 		let port: number;
 		let tenantHeaders: Record<string, string> = {};

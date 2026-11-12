@@ -54,6 +54,11 @@ export default async function LibraryPage({ searchParams }: { searchParams: Prom
 						<h2>
 							{AREA_LABELS[area]} ({inArea.length})
 						</h2>
+						{area === "course" && (
+							<p className="ad-muted">
+								The course file for the /course page. Students see the course only while a valid file is here. Make it with frontdoor/course/build-course-file.ts.
+							</p>
+						)}
 						{inArea.length === 0 ? (
 							<p className="ad-muted">No files yet.</p>
 						) : (

@@ -37,6 +37,7 @@ import { type BillingGatewayHook, createBillingHook, createBillingOffHook } from
 import { databaseRetention, type RetentionHooks } from "../billing/hooks.ts";
 import { createStripeClient, type StripeApi } from "../billing/stripe-api.ts";
 import { createDashboard } from "../admin/wiring.ts";
+import { createCourse } from "../course/index.ts";
 import { type Db, markTenantReady } from "../db/index.ts";
 import type { EmailSender } from "../email/sender.ts";
 import type { ClerkGateway } from "../gateway/auth.ts";
@@ -259,10 +260,26 @@ export async function startFrontDoor(options: FrontDoorOptions): Promise<FrontDo
 		log(billingOff(options.env) ? BILLING_OFF_WARNING : "billing not configured (no Stripe settings or no database): no plans screen, no trial gate");
 	}
 
+	// The guided course (frontdoor/course, master 2026-11-11): /course, /course/start, and the page's runtime.
+	// The course file comes from the library volume; with billing on, a used-up trial or ended plan blocks new lessons.
+	const course = createCourse({
+		db: db ?? null,
+		accounts,
+		sessionSecret: config.sessionSecret,
+		libraryDir: library,
+		billing: Boolean(billingConfig && db),
+		// W2-6 wall A: the new chat is opened on the student's own server, with its secret.
+		tenantFetch: (tenantId, path, init) => supervisor.tenantFetch(tenantId, path, init),
+		frontDoorApp: options.frontDoorApp,
+		trustForwardedHeaders: config.trustForwardedHeaders,
+		log,
+	});
+
 	const gateway = createGateway({
 		accounts,
 		clerk,
 		billing,
+		course: course.endpoint,
 		admin: dashboard.admin,
 		studentRoutes: dashboard.studentRoutes,
 		supervisor,
@@ -298,6 +315,7 @@ export async function startFrontDoor(options: FrontDoorOptions): Promise<FrontDo
 				await safety?.close();
 				const stopped = closeServer(server);
 				await dashboard.close();
+				course.close();
 				await email.close();
 				await supervisor.stopAll();
 				await stopped;

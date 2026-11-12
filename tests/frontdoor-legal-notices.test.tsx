@@ -53,11 +53,11 @@ describe("AGPL legal notices", () => {
 		assert.ok(hrefs(page).includes(`${SOURCE_REPOSITORY}/tree/abcdef1`), "source at the deployed commit");
 	});
 
-	it("the account and admin screens show the notice line with all four parts", () => {
+	it("the account, admin and course screens show the notice line with all four parts", () => {
 		const line = <LegalNoticeLine commit="abcdef1" />;
 		assertAllFourParts(text(line), hrefs(line));
 		assert.ok(hrefs(line).includes(`${SOURCE_REPOSITORY}/tree/abcdef1`));
-		for (const layout of ["frontdoor/app/account/layout.tsx", "frontdoor/app/admin/layout.tsx"]) {
+		for (const layout of ["frontdoor/app/account/layout.tsx", "frontdoor/app/admin/layout.tsx", "frontdoor/app/course/layout.tsx"]) {
 			const source = fs.readFileSync(path.join(ROOT, layout), "utf8");
 			assert.match(source, /<LegalNoticeLine\b/, `${layout} renders the notice line`);
 		}

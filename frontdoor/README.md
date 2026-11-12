@@ -31,7 +31,8 @@ Decision and spike: `docs/decisions/2026-11-08-x5-front-door-spike.md`.
 | `billing/` | Stripe (W2-8): Checkout with the trial, the 2-hour trial gate, Buy now, the customer portal, webhooks, coupons, billing emails. Pages in `app/account/plans/`. See `billing/README.md` for the Stripe settings and variables. |
 | `admin/`, `app/admin/` | The Owner's dashboard at `/admin` (W2-9): roles, tenant table, consent and session text, non-aviation flag, thresholds, pause buttons. See `admin/README.md`, including the one-time step that makes the Owner. |
 | `study-time/` | Active study time (PD1) from a heartbeat on the tutor's pages, per upstream chat. |
-| `library/` | The source library's upload, list and remove (P5-01). |
+| `library/` | The source library's upload, list and remove (P5-01), and its "Course" area for the course file. |
+| `course/`, `app/course/` | The guided course at `/course` (master, 2026-11-11): stages, subjects and Legs from the course file on the library volume, "Start lesson" opens a new tutor chat whose first message sets up the Leg, and "Started" marks. See `course/README.md`. |
 | `sharing/`, `app/account/sharing/` | The student's session-text switch (D19). |
 | `proxy.ts` | Clerk's middleware, for the `/account` pages only. |
 
@@ -107,7 +108,7 @@ It sets `NODE_ENV=production` and runs `server.ts` with `tsx`.
 |---|---|
 | `<volume>/tenants/<tenant id>/` | Each student's LearnHarness data (`LH_DATA_DIR`). Owner-only folder. |
 | `<volume>/auth/<tenant id>.json` | Each tenant server's key file (`LH_AUTH_FILE`). It holds no key: the meter has the keys. |
-| `<volume>/library/` | The shared source library (`LH_LIBRARY_DIR`), the only folder the tutors' file tools may read. Made at start if missing. |
+| `<volume>/library/` | The shared source library (`LH_LIBRARY_DIR`), the only folder the tutors' file tools may read. Made at start if missing. `course/private-pilot.course.json` in it is the course file `/course` reads (uploaded on `/admin/library`). |
 | `<volume>/metering/` | `pending-usage.jsonl` and `rejected-usage.jsonl`, only after a database outage. |
 | `<volume>/.library-incoming/` | Library uploads while they stream in (owner-only). Empty between uploads. |
 | `<volume>/backups/nightly/<date>/` | Nightly copy of each tenant folder, with a manifest, newest 7 nights (W2-7). Restore: `docs/decisions/2026-11-08-backups.md`. |

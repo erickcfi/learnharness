@@ -8,6 +8,7 @@ export const EXPECTED_TABLES = [
 	"accounts",
 	"alerts",
 	"consents",
+	"course_leg_starts",
 	"invoices",
 	"model_usage",
 	"owner_settings",

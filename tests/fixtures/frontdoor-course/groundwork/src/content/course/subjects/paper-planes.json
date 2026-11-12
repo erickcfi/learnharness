@@ -1,0 +1,13 @@
+{
+  "id": "paper-planes",
+  "title": "Paper planes",
+  "points": [
+    { "id": "9-1.p01", "label": "Which paper to use", "text": "SECRET STATEMENT: plain printer paper works best.", "acs": "ZZ.I.A.K1", "tier": "core", "cites": ["c1"], "loadBearing": true },
+    { "id": "9-1.p02", "label": "The center fold", "text": "SECRET STATEMENT: fold it in half the long way.", "acs": "ZZ.I.A.K1; ZZ.I.A.K2", "tier": "core", "cites": ["c1"], "loadBearing": false },
+    { "id": "9-1.p03", "label": "Folding the nose", "text": "SECRET STATEMENT: fold the corners to the center.", "acs": "ZZ.I.B.K1, K2", "tier": "core", "cites": [], "loadBearing": false },
+    { "id": "9-1.p04", "label": "What trim does", "text": "SECRET STATEMENT: trim changes the pitch.", "acs": "ZZ.II.A.K1", "tier": "deep", "cites": [], "loadBearing": false },
+    { "id": "9-1.p05a", "label": "Bending the back edges", "text": "SECRET STATEMENT: bend both edges up a little.", "acs": "ZZ.II.A.K1;ZZ.II.A.R1", "tier": "deep", "cites": [], "loadBearing": false }
+  ],
+  "citations": [{ "id": "c1", "document": "SECRET PASSAGE DOCUMENT", "edition": "1", "section": "1", "page": "1", "verified": "2026-01-01", "findingPath": [], "body": "> SECRET PASSAGE" }],
+  "mnemonics": []
+}

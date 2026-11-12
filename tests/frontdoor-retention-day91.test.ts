@@ -63,6 +63,7 @@ async function fullStudent(volume: string) {
 	await q("insert into report_sends (tenant_id, kind, week_start) values ($1, 'weekly', '2026-11-02')", [id]);
 	await q("insert into topic_labels (tenant_id, chat_id, topic, is_aviation, model) values ($1, 'chat_1', 'METAR', true, 'claude-haiku-5-5')", [id]);
 	await q("insert into consents (tenant_id, kind) values ($1, 'session_text_opt_in')", [id]);
+	await q("insert into course_leg_starts (tenant_id, leg_id, chat_id) values ($1, 'sample-leg', 'chat_1')", [id]);
 	await dbm.setStripeCustomerId(t.db, id, `cus_${id}`);
 	return { account, tenant, clerkUserId, dir, night };
 }

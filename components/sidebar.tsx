@@ -900,6 +900,7 @@ function SessionsSidebar() {
 								Settings
 							</button>
 						</Hint>
+						<a href="/course" data-testid="course-link" className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs uppercase tracking-wider text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">Course</a>{/* North Aero fork: the guided course page (frontdoor/course); docs/upstream-changes.md */}
 						<a href="/account/plans" data-testid="account-link" className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[10px] uppercase tracking-wider text-muted-foreground/70 transition-colors hover:bg-accent hover:text-foreground">Account</a>{/* North Aero fork (W2-8): the student's plan and billing; docs/upstream-changes.md */}
 						<SourceCodeLink />
 						<LicenseLink />
