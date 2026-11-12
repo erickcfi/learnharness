@@ -33,33 +33,33 @@ export default async function StudentPage({
 	return (
 		<>
 			<Flash done={param(q.done)} error={param(q.error)} />
-			<p className="ad-muted">
+			<p className="dash-muted">
 				<Link href="/admin">← Students</Link>
 			</p>
 			<h1>{r.name ?? r.email ?? `Student ${r.shortId}`}</h1>
-			<div className="ad-row">
-				<span className={`ad-badge ${r.status}`}>{STATUS_LABELS[r.status]}</span>
-				{r.roles.includes("owner") && <span className="ad-badge">Owner</span>}
+			<div className="dash-row">
+				<span className={`dash-badge ${r.status}`}>{STATUS_LABELS[r.status]}</span>
+				{r.roles.includes("owner") && <span className="dash-badge">Owner</span>}
 				{r.alerts.map((k) => (
-					<span key={k} className="ad-badge alert">
+					<span key={k} className="dash-badge alert">
 						{ALERT_LABELS[k]}
 					</span>
 				))}
-				{r.name && r.email && <span className="ad-muted">{r.email}</span>}
+				{r.name && r.email && <span className="dash-muted">{r.email}</span>}
 			</div>
-			<div className="ad-actions">
+			<div className="dash-actions">
 				<PauseButton tenantId={tenantId} paused={r.paused} back={back} name={r.name ?? r.email ?? `Student ${r.shortId}`} />
 			</div>
 
-			<nav className="ad-tabs" aria-label="Period" style={{ marginTop: 16 }}>
+			<nav className="dash-tabs" aria-label="Period" style={{ marginTop: 16 }}>
 				{PERIODS.map((p) => (
 					<Link key={p} href={`/admin/students/${tenantId}?period=${p}`} aria-current={p === period ? "page" : undefined}>
 						{PERIOD_LABELS[p]}
 					</Link>
 				))}
 			</nav>
-			<div className="ad-card">
-				<dl className="ad-dl">
+			<div className="dash-card">
+				<dl className="dash-dl">
 					<div>
 						<dt>Model cost</dt>
 						<dd>{usd(r.modelCostUsd)}</dd>
@@ -103,27 +103,27 @@ export default async function StudentPage({
 						<dd>{CONVERSION_LABELS[r.conversion]}</dd>
 					</div>
 				</dl>
-				{r.plan === null && r.revenueUsd === 0 && <p className="ad-note">Plan, coupon and revenue: {BILLING_PENDING.toLowerCase()}, or no plan yet.</p>}
+				{r.plan === null && r.revenueUsd === 0 && <p className="dash-note">Plan, coupon and revenue: {BILLING_PENDING.toLowerCase()}, or no plan yet.</p>}
 			</div>
 
 			<h2>Sessions ({d.sessions.length})</h2>
-			{d.sessionsError && <p className="ad-flash err">{d.sessionsError}</p>}
-			{d.sessions.length === 0 && <p className="ad-muted">No sessions yet.</p>}
+			{d.sessionsError && <p className="dash-flash err">{d.sessionsError}</p>}
+			{d.sessions.length === 0 && <p className="dash-muted">No sessions yet.</p>}
 			{d.sessions.map((s) => (
-				<div className="ad-card" key={s.chatId}>
-					<div className="ad-row">
+				<div className="dash-card" key={s.chatId}>
+					<div className="dash-row">
 						<strong>{s.title ?? "Untitled session"}</strong>
-						{s.isAviation === false && <span className="ad-badge flag">Not aviation</span>}
-						{s.isAviation === true && <span className="ad-badge ok">Aviation</span>}
+						{s.isAviation === false && <span className="dash-badge flag">Not aviation</span>}
+						{s.isAviation === true && <span className="dash-badge ok">Aviation</span>}
 					</div>
-					<div className="ad-muted">
+					<div className="dash-muted">
 						{day(s.createdAt ?? s.lastActiveAt, tz)} · {duration(s.activeSeconds)} studied
 						{s.lastActiveAt ? ` · last active ${dayTime(s.lastActiveAt, tz)}` : ""}
 					</div>
-					{s.topics && s.topics.length > 0 && <p className="ad-note">Topics: {s.topics.join(" · ")}</p>}
+					{s.topics && s.topics.length > 0 && <p className="dash-note">Topics: {s.topics.join(" · ")}</p>}
 					{d.canShowText && (
-						<div className="ad-actions">
-							<Link className="ad-btn" href={`/admin/students/${tenantId}/sessions/${encodeURIComponent(s.chatId)}`}>
+						<div className="dash-actions">
+							<Link className="dash-btn" href={`/admin/students/${tenantId}/sessions/${encodeURIComponent(s.chatId)}`}>
 								Read session text
 							</Link>
 						</div>
@@ -132,13 +132,13 @@ export default async function StudentPage({
 			))}
 
 			<h2>Session text consent</h2>
-			<div className="ad-card">
+			<div className="dash-card">
 				<p>
 					{d.canShowText
 						? "You can read this student's session text."
 						: "You cannot read this student's session text. You see only titles, topics and numbers."}
 				</p>
-				<ul className="ad-list">
+				<ul className="dash-list">
 					<li>
 						Student's own opt-in:{" "}
 						<strong>{d.consent.optedIn ? `on since ${day(optIn?.grantedAt ?? null, tz)}` : optIn?.revokedAt ? `off since ${day(optIn.revokedAt, tz)}` : "off"}</strong>
@@ -151,7 +151,7 @@ export default async function StudentPage({
 					</li>
 				</ul>
 				{d.consent.testerWrittenOk ? (
-					<form method="post" action={`/admin/api/tenants/${tenantId}/consents/tester/revoke`} className="ad-actions">
+					<form method="post" action={`/admin/api/tenants/${tenantId}/consents/tester/revoke`} className="dash-actions">
 						<input type="hidden" name="back" value={back} />
 						<button type="submit">Revoke tester's written OK</button>
 					</form>
@@ -160,7 +160,7 @@ export default async function StudentPage({
 						<input type="hidden" name="back" value={back} />
 						<label htmlFor="note">Record a tester's written OK. Where is it kept?</label>
 						<input id="note" name="note" type="text" maxLength={300} placeholder="Signed form, 2026-11-10" required />
-						<div className="ad-actions">
+						<div className="dash-actions">
 							<button type="submit">Record written OK</button>
 						</div>
 					</form>
@@ -170,7 +170,7 @@ export default async function StudentPage({
 			{(d.alerts.length > 0 || d.pauses.length > 0) && (
 				<>
 					<h2>History</h2>
-					<ul className="ad-list">
+					<ul className="dash-list">
 						{d.alerts.map((a) => (
 							<li key={`a${a.id}`}>
 								{ALERT_LABELS[a.kind]} {dayTime(a.createdAt, tz)}: {usd(a.windowCostUsd)} in 30 days (line {usd(a.thresholdUsd)})
