@@ -4,7 +4,8 @@
  * opens a new chat on the student's own tutor server with upstream's own
  * POST /api/chats, records a Started mark, and lands on /chat/<id>?prompt=
  * with the Leg's first message. The marks work with the table and without
- * it (migration not applied yet). Invented course data only.
+ * it (migration not applied yet). "Continue" skips chats the student
+ * deleted in the tutor. Invented course data only.
  */
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
@@ -17,6 +18,7 @@ import { databaseStartBlock } from "../frontdoor/course/blocks.ts";
 import { type Course, createCourse } from "../frontdoor/course/index.ts";
 import { COURSE_FILE_NAME, findLeg } from "../frontdoor/course/file.ts";
 import { firstMessage } from "../frontdoor/course/first-message.ts";
+import { tenantLiveChats } from "../frontdoor/course/live-chats.ts";
 import { legStartMarks, MISSING_TABLE_LINE } from "../frontdoor/course/marks.ts";
 import * as dbm from "../frontdoor/db/index.ts";
 import { createTestDb, type TestDb } from "../frontdoor/db/testing.ts";
@@ -42,7 +44,11 @@ const logs: string[] = [];
 const tenantHits: { method: string; url: string; headers: IncomingHttpHeaders; body: string }[] = [];
 const pageHits: string[] = [];
 let tenantFails = false;
+/** The tenant server drops the connection on GET /api/chats. */
+let tenantDown = false;
 let chats = 0;
+/** The chats the tenant server still has (a student can delete one in the tutor). */
+const liveChats = new Set<string>();
 let clock = NOW;
 
 before(async () => {
@@ -63,7 +69,19 @@ before(async () => {
 					return;
 				}
 				const { title } = JSON.parse(Buffer.concat(chunks).toString("utf8")) as { title: string };
-				res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ id: `chat_${++chats}`, title }));
+				const id = `chat_${++chats}`;
+				liveChats.add(id);
+				res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ id, title }));
+				return;
+			}
+			if (req.method === "GET" && req.url === "/api/chats") {
+				if (tenantDown) {
+					req.socket.destroy();
+					return;
+				}
+				const at = new Date(NOW).toISOString();
+				const list = [...liveChats].map((id) => ({ id, title: "Lesson", createdAt: at, updatedAt: at, kind: "teach", messageCount: 0, phase: "probe" }));
+				res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ chats: list }));
 				return;
 			}
 			res.writeHead(200, { "Content-Type": "text/plain" }).end("from tenant");
@@ -119,6 +137,7 @@ beforeEach(() => {
 	tenantHits.length = 0;
 	pageHits.length = 0;
 	tenantFails = false;
+	tenantDown = false;
 });
 
 function putCourseFile(): void {
@@ -259,6 +278,55 @@ describe("starting a lesson", () => {
 	});
 });
 
+describe("Continue after the student deletes a chat in the tutor", () => {
+	// From the tests above: "Folding the dart" was started twice, chat_2 (newest) then chat_1.
+	async function foldingTheDart() {
+		const page = await course.runtime.page(cookie);
+		if (page.status !== "ready") throw new Error(page.status);
+		const subject = page.course.stages[0]!.subjects[0]!;
+		return { leg: subject.legs.find((l) => l.id === "folding-the-dart")!, startedCount: subject.startedCount };
+	}
+	const chatListReads = () => tenantHits.filter((h) => h.method === "GET" && h.url === "/api/chats");
+
+	it("links Continue to the newest chat while it still exists", async () => {
+		const { leg } = await foldingTheDart();
+		assert.equal(leg.started?.chatId, "chat_2");
+		assert.equal(leg.continueChatId, "chat_2");
+		assert.equal(chatListReads().length, 1, "one read of the chat list per page");
+		assert.match(String(chatListReads()[0]!.headers.accept), /application\/json/);
+	});
+
+	it("falls back to the newest earlier chat for the Leg when the newest was deleted", async () => {
+		liveChats.delete("chat_2");
+		const { leg, startedCount } = await foldingTheDart();
+		assert.equal(leg.continueChatId, "chat_1");
+		assert.equal(leg.started?.chatId, "chat_2", "the Started mark stays");
+		assert.equal(startedCount, 1);
+	});
+
+	it("shows Start lesson again, and keeps Started, when every chat for the Leg was deleted", async () => {
+		liveChats.delete("chat_1");
+		const { leg, startedCount } = await foldingTheDart();
+		assert.equal(leg.continueChatId, null);
+		assert.notEqual(leg.started, null, "the Started mark stays");
+		assert.equal(startedCount, 1);
+	});
+
+	it("keeps today's link to the newest chat when the tenant server does not answer", async () => {
+		tenantDown = true;
+		logs.length = 0;
+		const { leg } = await foldingTheDart();
+		assert.equal(leg.continueChatId, "chat_2");
+		assert.equal(leg.started?.chatId, "chat_2");
+		assert.ok(logs.some((l) => /^course: could not list tenant .+'s chats \(TypeError\), so Continue links the newest start$/.test(l)), logs.join("\n"));
+
+		const lines: string[] = [];
+		const hung = tenantLiveChats(() => new Promise<Response>(() => {}), (l) => lines.push(l), 50);
+		assert.equal(await hung(tenantId), null, "no answer in time");
+		assert.match(lines[0] ?? "", /\(TimeoutError\b/);
+	});
+});
+
 describe("Started marks without the course_leg_starts table (migration not applied)", () => {
 	it("still starts the lesson, shows no marks, and logs one line", async () => {
 		await t.db.query("drop table public.course_leg_starts");
@@ -278,7 +346,7 @@ describe("Started marks without the course_leg_starts table (migration not appli
 		const lines: string[] = [];
 		const marks = legStartMarks(null, (l) => lines.push(l));
 		await marks.record({ tenantId, legId: "x", chatId: "chat_x" });
-		assert.equal((await marks.latestByLeg(tenantId)).size, 0);
+		assert.equal((await marks.startsByLeg(tenantId)).size, 0);
 		assert.deepEqual(lines, []);
 	});
 
@@ -287,7 +355,7 @@ describe("Started marks without the course_leg_starts table (migration not appli
 		const broken = { query: async () => Promise.reject(Object.assign(new Error("value 'secret' is bad"), { code: "22001" })), transaction: async () => undefined } as unknown as dbm.Db;
 		const marks = legStartMarks(broken, (l) => lines.push(l));
 		await marks.record({ tenantId, legId: "x", chatId: "chat_x" });
-		assert.equal((await marks.latestByLeg(tenantId)).size, 0);
+		assert.equal((await marks.startsByLeg(tenantId)).size, 0);
 		assert.deepEqual(lines, ["course: could not record a Leg start (error code 22001)", "course: could not read Leg starts (error code 22001)"]);
 	});
 });

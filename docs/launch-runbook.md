@@ -214,7 +214,6 @@ All of these settings were made in the sandbox for staging. Live mode has its ow
      Read what it would change, then run it again without `--dry-run`.
    - The promotion codes are the words students type. Erick picks them. The live codes can match the sandbox words or be new. The tester code works 3 times in all (D14). Never write them in the repo or chat.
 5. **Webhook endpoint** (live). Stripe's current docs: **Workbench**, the **Webhooks** tab, **Create an event destination**, **Your account**, payload **Snapshot** with API version `2026-10-28.endive`, select the events listed in `frontdoor/billing/README.md` step 3, **Continue**, **Webhook endpoint**, then the endpoint URL `https://ground.flynorthaero.com/account/stripe/webhook`. On the endpoint page, reveal the signing secret (`whsec_...`) and put it in production's `STRIPE_WEBHOOK_SECRET`.
-   - `frontdoor/billing/README.md` says "Developers > Webhooks > Add endpoint". That is the older Dashboard path.
    - Until the cutover, the URL reaches Netlify, so deliveries would fail. That is fine: there are no live customers yet, and Stripe retries live events for up to 3 days.
 6. **Subscriptions and emails** (**Settings > Billing > Subscriptions and emails**, `dashboard.stripe.com/settings/billing/automatic`), in live mode, as in `frontdoor/billing/README.md` step 4:
    - "Send a reminder email 7 days before a free trial ends": on, with the link to a Stripe-hosted page.

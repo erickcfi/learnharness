@@ -5,7 +5,7 @@
  */
 import type { StartBlock } from "./blocks.ts";
 import type { CourseFile } from "./file.ts";
-import type { LatestStart } from "./marks.ts";
+import type { StartMark } from "./marks.ts";
 
 export interface LegView {
 	/** Sent back by the Start form only; never shown. */
@@ -13,7 +13,10 @@ export interface LegView {
 	title: string;
 	outcome: string;
 	keyPointCount: number;
-	started: LatestStart | null;
+	/** The newest start: the "Started" mark. */
+	started: StartMark | null;
+	/** The chat "Continue" opens, or null: then the Leg offers "Start lesson" again. */
+	continueChatId: string | null;
 }
 
 export interface SubjectView {
@@ -47,7 +50,18 @@ export function courseRedirect(state: CoursePageState): string | null {
 	return null;
 }
 
-export function courseView(course: CourseFile, marks: ReadonlyMap<string, LatestStart>, block: StartBlock | null): CourseView {
+/**
+ * The chat "Continue" opens for one Leg. `starts` is newest first. A chat the
+ * student deleted in the tutor is skipped for the newest earlier one that
+ * still exists; none left gives null. `liveChats` null means the tenant's
+ * server did not answer: then the newest start, as before.
+ */
+export function chatToContinue(starts: readonly StartMark[], liveChats: ReadonlySet<string> | null): string | null {
+	if (!liveChats) return starts[0]?.chatId ?? null;
+	return starts.find((start) => liveChats.has(start.chatId))?.chatId ?? null;
+}
+
+export function courseView(course: CourseFile, starts: ReadonlyMap<string, readonly StartMark[]>, block: StartBlock | null, liveChats: ReadonlySet<string> | null = null): CourseView {
 	return {
 		title: course.title,
 		block,
@@ -55,13 +69,17 @@ export function courseView(course: CourseFile, marks: ReadonlyMap<string, Latest
 			id: stage.id,
 			title: stage.title,
 			subjects: stage.subjects.map((subject) => {
-				const legs = subject.legs.map((leg) => ({
-					id: leg.id,
-					title: leg.title,
-					outcome: leg.outcome,
-					keyPointCount: leg.keyPoints.length,
-					started: marks.get(leg.id) ?? null,
-				}));
+				const legs = subject.legs.map((leg) => {
+					const legStarts = starts.get(leg.id) ?? [];
+					return {
+						id: leg.id,
+						title: leg.title,
+						outcome: leg.outcome,
+						keyPointCount: leg.keyPoints.length,
+						started: legStarts[0] ?? null,
+						continueChatId: chatToContinue(legStarts, liveChats),
+					};
+				});
 				return { id: subject.id, title: subject.title, legs, startedCount: legs.filter((l) => l.started).length };
 			}),
 		})),

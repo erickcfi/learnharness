@@ -1,7 +1,8 @@
 /**
  * Course Leg starts (master, 2026-11-11): when a student starts a Leg on
  * /course, which chat it opened. The page shows "Started" on that Leg and a
- * "Continue" link to the latest chat. "Done" is not tracked yet.
+ * "Continue" link to the newest chat that still exists. "Done" is not
+ * tracked yet.
  *
  * Table course_leg_starts (migration 20261111000100). The front door must
  * work before that migration is applied: frontdoor/course/marks.ts catches

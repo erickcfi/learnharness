@@ -6,7 +6,7 @@
  * SES configuration set. They come from the approved checklist.
  *
  * Railway variables (secrets live only there, cross-cutting req 2):
- *   SES_REGION             the AWS Region of the tutor's SES, e.g. us-west-2
+ *   SES_REGION             the AWS Region of the tutor's SES, e.g. us-east-2
  *   SES_ACCESS_KEY_ID      an access key for an IAM user that may only send
  *   SES_SECRET_ACCESS_KEY  its secret
  *   FRONTDOOR_PUBLIC_URL   optional: the site address used in email links,
@@ -65,7 +65,7 @@ export function emailEnvProblems(env: Env): string[] {
 		problems.push(`${missing.join(", ")} ${missing.length === 1 ? "is" : "are"} not set. Report email needs all of ${SES_VARIABLES.join(", ")}, or none of them (email off).`);
 	}
 	if (isSet(env, "SES_REGION") && !/^[a-z]{2}(-[a-z]+)+-\d$/.test(env.SES_REGION!.trim())) {
-		problems.push("SES_REGION must be an AWS Region code, for example us-west-2.");
+		problems.push("SES_REGION must be an AWS Region code, for example us-east-2.");
 	}
 	if (isSet(env, "FRONTDOOR_PUBLIC_URL")) {
 		const raw = env.FRONTDOOR_PUBLIC_URL!.trim();

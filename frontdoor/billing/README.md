@@ -77,8 +77,8 @@ In production, the front door refuses to start without both Stripe secrets, unle
    - Terms of service URL: `https://<site>/legal/terms`. Checkout's terms box needs it.
    - Also the support email (`info@flynorthaero.com`) and a statement descriptor such as `NORTHAERO GROUND`.
 2. **Run the setup script** (see below). It creates the product `north-aero-ground-tutor`, three prices with lookup keys `ground_tutor_monthly`, `ground_tutor_quarterly` and `ground_tutor_annual`, the coupons `north-aero-student-20` and `north-aero-tester-100`, and their promotion codes.
-3. **Developers > Webhooks > Add endpoint**:
-   - URL: `https://<site>/account/stripe/webhook`.
+3. **Workbench > Webhooks > Create an event destination**:
+   - Events from: **Your account**. Payload: **Snapshot**.
    - API version: **`2026-10-28.endive`** (the payload uses the endpoint's version).
    - Events:
      - `checkout.session.completed`
@@ -87,6 +87,7 @@ In production, the front door refuses to start without both Stripe secrets, unle
      - `customer.subscription.pending_update_applied`, `customer.subscription.pending_update_expired`
      - `invoice.paid`, `invoice.payment_failed`, `invoice.payment_action_required`, `invoice.finalized`, `invoice.voided`, `invoice.marked_uncollectible`
      - `invoice.upcoming`
+   - **Continue**, then **Webhook endpoint**, with the URL `https://<site>/account/stripe/webhook` (`WEBHOOK_PATH` in `config.ts`).
    - Copy its signing secret into `STRIPE_WEBHOOK_SECRET`.
 4. **Settings > Billing > Subscriptions and emails** (`dashboard.stripe.com/settings/billing/automatic`):
    - "Send a reminder email 7 days before a free trial ends": **on**, with the link to a Stripe-hosted page (C2 req 6). For a 7-day trial Stripe sends it when the trial starts. Stripe does not send it in test mode.

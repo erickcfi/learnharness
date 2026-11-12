@@ -7,15 +7,15 @@
  */
 import { type Db, listLegStarts, recordLegStart } from "../db/index.ts";
 
-export interface LatestStart {
+export interface StartMark {
 	chatId: string;
 	startedAt: Date;
 }
 
 export interface LegStartMarks {
 	record(input: { tenantId: string; legId: string; chatId: string; at?: Date }): Promise<void>;
-	/** The newest start per Leg id. Empty with no database or no table. */
-	latestByLeg(tenantId: string): Promise<Map<string, LatestStart>>;
+	/** Every start per Leg id, newest first. Empty with no database or no table. */
+	startsByLeg(tenantId: string): Promise<Map<string, StartMark[]>>;
 }
 
 /** Postgres's "undefined_table". */
@@ -49,12 +49,15 @@ export function legStartMarks(db: Db | null, log?: (line: string) => void): LegS
 				trouble("record a Leg start", error);
 			}
 		},
-		async latestByLeg(tenantId) {
-			const out = new Map<string, LatestStart>();
+		async startsByLeg(tenantId) {
+			const out = new Map<string, StartMark[]>();
 			if (!db) return out;
 			try {
+				// listLegStarts is newest first, so each Leg's list is too.
 				for (const row of await listLegStarts(db, tenantId)) {
-					if (!out.has(row.legId)) out.set(row.legId, { chatId: row.chatId, startedAt: row.startedAt });
+					const starts = out.get(row.legId) ?? [];
+					starts.push({ chatId: row.chatId, startedAt: row.startedAt });
+					out.set(row.legId, starts);
 				}
 			} catch (error) {
 				trouble("read Leg starts", error);
