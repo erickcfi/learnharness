@@ -38,13 +38,22 @@ This plan turns `docs/PRD.md` into ordered work. The cards live in `docs/kanban.
 
 ## Waves
 
-| Wave | Packages | Starts | Done when |
-|---|---|---|---|
-| 0 | P0-01 to P0-07 | 2026-11-07 | The fork is public. CI is green. Staging runs behind a password. Live-turn memory is recorded. |
-| 1 | W1-1 front door, W1-2 database, W1-3 lockdown, W1-4 metering, W1-5 reporting | 2026-11-08 | Each package's tests are green and merged. X5 is approved. |
-| 2 | W2-6 isolation and limits, W2-7 pause and data safety, W2-8 Stripe, W2-9 dashboard, W2-10 email reports | When W1-1 merges. Packages that write to the database also wait for W1-2. | The C1, C2 (Stripe test mode), C3, C4, C5, C6, and C7 tests are green, and a backup restore works. |
-| Testers | P7-01 | When W1-1, W1-2, W1-3, W1-4, and W2-6 are merged | 3 testers use staging, with written consents on file. |
-| 3 | P7-02 to P7-04 | When wave 2 is merged | Every launch gate passes, and DNS points to Railway. |
+| Wave | Packages | Starts | Done when | Status (2026-11-11) |
+|---|---|---|---|---|
+| 0 | P0-01 to P0-07 | 2026-11-07 | The fork is public. CI is green. Staging runs behind a password. Live-turn memory is recorded. | Done, except P0-07 (live-turn memory not measured yet). |
+| 1 | W1-1 front door, W1-2 database, W1-3 lockdown, W1-4 metering, W1-5 reporting | 2026-11-08 | Each package's tests are green and merged. X5 is approved. | Done. Merged 2026-11-08 (PRs #2 to #7), then W1-6 wire-up (PR #9). |
+| 2 | W2-6 isolation and limits, W2-7 pause and data safety, W2-8 Stripe, W2-9 dashboard, W2-10 email reports | When W1-1 merges. Packages that write to the database also wait for W1-2. | The C1, C2 (Stripe test mode), C3, C4, C5, C6, and C7 tests are green, and a backup restore works. | Merged 2026-11-08 (PRs #11 to #15), with W2-11 landing page (PR #10). Fixes merged up to PR #24 (`4ec1b5d`). Not recorded yet: a backup restore on staging and some staging-only Stripe and email checks (`docs/decisions/launch-gates.md`). |
+| Testers | P7-01 | When W1-1, W1-2, W1-3, W1-4, and W2-6 are merged | 3 testers use staging, with written consents on file. | Ready. Not started. |
+| 3 | P7-02 to P7-04 | When wave 2 is merged | Every launch gate passes, and DNS points to Railway. | P7-02 started (`docs/decisions/launch-gates.md`). P7-03 runbook written (`docs/launch-runbook.md`). P7-04 waits for T6. |
+
+## What is left before launch (2026-11-11)
+
+1. **P0-07.** Read Railway's memory during a live teaching session on staging. T7 Run A can be that session.
+2. **Owner tickets.** T7 (cost test) feeds G1 and G3. T5 (legal texts) feeds G2. T1 to T4 fill the library; their package is built, and its upload to the site is not recorded yet. T3 waits for photos of N41459's POH. T6 feeds P7-04. T8 is not needed for an 18+ launch. Details in `docs/kanban.md`.
+3. **P7-01. Testers** on staging, with written consents.
+4. **P7-02. Gates** G1 to G4, signed off by Erick.
+5. **P7-03. Launch** by `docs/launch-runbook.md`: production Railway environment, a production Supabase project, the Clerk Production instance, Stripe live mode, the SES checks, then the DNS cutover.
+6. **P7-04.** Retire the Netlify site after T6.
 
 ## Order and dependencies
 
