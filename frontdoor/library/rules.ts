@@ -4,11 +4,15 @@
  * tools, so only types those tools read are allowed: PDF (the pdf job),
  * text (the read tool) and images (the read tool).
  *
- * Layout (C4 req 1): faa/, ntsb/, poh/<aircraft>/, north-aero/.
+ * Layout (C4 req 1): faa/, ntsb/, poh/<aircraft>/, north-aero/. Plus
+ * course/, which holds one file: the course file the /course page reads
+ * (frontdoor/course, master 2026-11-11). It takes only that JSON file, and
+ * only when it passes the course file check.
  */
+import { COURSE_AREA, COURSE_FILE_NAME } from "../course/file.ts";
 import { LIBRARY_SUBFOLDERS } from "../settings-template/file-access.ts";
 
-export const LIBRARY_AREAS = LIBRARY_SUBFOLDERS;
+export const LIBRARY_AREAS = [...LIBRARY_SUBFOLDERS, COURSE_AREA] as const;
 export type LibraryArea = (typeof LIBRARY_AREAS)[number];
 
 export const AREA_LABELS: Record<LibraryArea, string> = {
@@ -16,7 +20,15 @@ export const AREA_LABELS: Record<LibraryArea, string> = {
 	ntsb: "NTSB",
 	poh: "POH",
 	"north-aero": "North Aero",
+	course: "Course",
 };
+
+export { COURSE_AREA, COURSE_FILE_NAME };
+
+/** The course area keeps one file under one name, whatever the upload was called. Null unless the name ends in .json. */
+export function courseUploadName(raw: unknown): string | null {
+	return typeof raw === "string" && /\.json$/i.test(raw.trim()) ? COURSE_FILE_NAME : null;
+}
 
 export const LIBRARY_EXTENSIONS = [".pdf", ".md", ".txt", ".csv", ".png", ".jpg", ".jpeg", ".gif", ".webp"] as const;
 /** FAA handbooks run 20 to 80 MB. PD3's 20 MB limit is for student imports, not the library. */
@@ -71,7 +83,7 @@ export function cleanAircraft(raw: unknown): string | null {
 
 /** The folder (relative to the library) a file goes into, or an error in plain words. */
 export function targetFolder(area: unknown, aircraft: unknown): { ok: true; folder: string } | { ok: false; error: string } {
-	if (!isLibraryArea(area)) return { ok: false, error: "Choose FAA, NTSB, POH or North Aero." };
+	if (!isLibraryArea(area)) return { ok: false, error: "Choose FAA, NTSB, POH, North Aero or Course." };
 	if (area !== "poh") return { ok: true, folder: area };
 	const plane = cleanAircraft(aircraft);
 	if (!plane) return { ok: false, error: "Type the aircraft folder name, for example c172s (letters, digits and dashes)." };
@@ -88,6 +100,7 @@ export function checkRelativePath(raw: unknown): string | null {
 	const parts = raw.split("/");
 	if (parts.length < 2 || parts.length > 5) return null;
 	if (!isLibraryArea(parts[0])) return null;
+	if (parts[0] === COURSE_AREA) return parts.length === 2 && parts[1] === COURSE_FILE_NAME ? raw : null;
 	if (!parts.every((p) => p !== "." && p !== ".." && SAFE_SEGMENT.test(p))) return null;
 	if (!isAllowedExtension(parts[parts.length - 1] ?? "")) return null;
 	return parts.join("/");

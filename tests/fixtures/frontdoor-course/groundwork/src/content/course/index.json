@@ -1,0 +1,24 @@
+{
+  "id": "sample-course",
+  "title": "Sample course",
+  "subjects": [
+    {
+      "id": "paper-planes",
+      "title": "Paper planes",
+      "legs": [
+        { "id": "folding-the-dart", "title": "Folding the dart", "outcome": "Fold a dart that flies straight across the room.", "when": "solo", "points": ["9-1.p01", "9-1.p02", "9-1.p03"] },
+        { "id": "trimming-the-wings", "title": "Trimming the wings", "outcome": "Bend the back edges so the plane stops diving.", "when": "cross-country", "points": ["9-1.p04", "9-1.p05a"], "together": [["9-1.p04", "9-1.p05a"]] }
+      ]
+    },
+    {
+      "id": "kite-flying",
+      "title": "Kite flying",
+      "legs": [
+        { "id": "picking-a-field", "title": "Picking a field", "outcome": "Choose an open field away from trees and wires.", "when": "solo", "points": ["9-2.p01", "9-2.p02"] },
+        { "id": "line-tension", "title": "Line tension", "outcome": "Keep the line tight as the wind drops.", "when": "checkride", "points": ["9-2.p03"], "figures": ["sample-fig-1"] }
+      ]
+    }
+  ],
+  "replacedBy": { "9-1.p05": ["9-1.p05a"] },
+  "loadBearing": ["9-1.p01"]
+}

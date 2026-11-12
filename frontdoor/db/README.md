@@ -32,6 +32,7 @@ Record in `docs/decisions/2026-11-08-database.md`.
 | `report_sends` | Reports claimed and sent, so none goes out twice: one per study sitting (W2-10 migration) or week | C6 req 3 |
 | `topic_labels` | Haiku's aviation flag per session topic | C7 req 4 |
 | `owner_settings` | One row: alert $60, autopause $89 | C3 req 5 |
+| `course_leg_starts` | Course Legs a student started on `/course`: tenant, Leg id, the chat it opened, when (migration `20261111000100`, not applied yet; `frontdoor/course`) | Course (master, 2026-11-11) |
 | `tenant_overview` (view) | Dashboard status: trial, active, paused, canceled, retention, none | C7 req 2 |
 
 Deleting a tenant's account (`deleteTenantAndAccount`) removes every row of that tenant through the foreign keys. `trial_claims` and `stripe_events` have no tenant link and stay.
@@ -59,6 +60,7 @@ Main entry points by package:
 - **Dashboard:** `listTenantOverview`, `usageTotals`, `revenueTotals`, `studySummary`, `listOpenAlerts`, `clearAlert`, `unpauseTenant`, `updateOwnerSettings`, `canShowSessionText`, `grantConsent`, `revokeConsent`, `saveTopicLabel`.
 - **Reports:** `getReportSettings`, `updateReportSettings`, `unsubscribeByToken`, `listWeeklyRecipients`, `claimReportSend`, `markReportSent`.
 - **Day 91:** `listTenantsDueForDeletion`, `deleteTenantAndAccount` (the caller deletes the tenant folder).
+- **Course:** `recordLegStart`, `listLegStarts`. Call them through `frontdoor/course/marks.ts`, which keeps the page working while the table is missing.
 
 Money comes back as numbers of dollars (`costUsd`, `feeUsd`) or whole cents (`amountPaidCents`). A model call with `costUsd: null` is unpriced: it is stored and counted (`unpricedCalls` in `usageTotals`), but adds nothing to the cost sums, so it never moves a tenant toward the alert or autopause. Times are `Date`s. Weekly report weeks are `YYYY-MM-DD` strings.
 

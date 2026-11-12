@@ -13,6 +13,10 @@ The Owner adds, replaces and removes files on `/admin/library`. The upload form 
 - File names keep letters, digits, space, dot, dash and underscore. Any folder part of the name is dropped.
 - POH files go in a folder per aircraft, named with lowercase letters, digits and dashes (for example `c172s`).
 
+## The Course area
+
+`course/` holds one file: the course file the `/course` page reads (`frontdoor/course`, master 2026-11-11). Choose "Course" on the upload form and pick the `.json` file that `frontdoor/course/build-course-file.ts` wrote. Whatever its name, it is stored as `course/private-pilot.course.json`. It is saved only when it passes the course file check (`frontdoor/course/file.ts`): the right format and version, ids, titles, outcomes, ACS codes and key point labels, and no other field. So a file with key point statements, source passages or quizzes is refused. Up to 5 MB. The same "Replace" rule applies. Removing it makes `/course` say the course is coming soon.
+
 ## How a file is saved (`store.ts`)
 
 The upload streams to `<volume>/.library-incoming/` (next to the library, owner-only), is checked, then renamed into place. A tutor never sees half a file, and a failed upload leaves nothing behind. A file of the same name is replaced only when the Owner confirms. Nothing is written through a link, and links are skipped in the listing. Removing needs a confirm step and works only on a file inside the library.

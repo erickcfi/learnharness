@@ -13,7 +13,8 @@ import * as fs from "node:fs";
 import * as fsp from "node:fs/promises";
 import * as path from "node:path";
 import type { Readable } from "node:stream";
-import { checkRelativePath, cleanFileName, contentMatchesName, LIBRARY_AREAS, LIBRARY_MAX_BYTES, targetFolder } from "./rules.ts";
+import { COURSE_MAX_BYTES, parseCourseBytes } from "../course/file.ts";
+import { checkRelativePath, cleanFileName, contentMatchesName, COURSE_AREA, courseUploadName, LIBRARY_AREAS, LIBRARY_MAX_BYTES, targetFolder } from "./rules.ts";
 
 export interface LibraryFile {
 	/** Path inside the library with forward slashes, for example "poh/c172s/POH.pdf". */
@@ -105,13 +106,23 @@ export interface SaveOptions {
 	maxBytes?: number;
 }
 
-/** Add or replace one file. Streams the body; refuses it when too large or when its bytes don't match its type. */
+/**
+ * Add or replace one file. Streams the body; refuses it when too large or when its bytes don't match its type.
+ * The course area takes one .json file, stored as private-pilot.course.json, and only when it passes the
+ * course file check (frontdoor/course/file.ts).
+ */
 export async function saveLibraryFile(libraryDir: string, body: Readable, options: SaveOptions): Promise<{ file: LibraryFile; replaced: boolean }> {
-	const maxBytes = options.maxBytes ?? LIBRARY_MAX_BYTES;
+	const course = options.area === COURSE_AREA;
+	const maxBytes = options.maxBytes ?? (course ? COURSE_MAX_BYTES : LIBRARY_MAX_BYTES);
 	const folder = targetFolder(options.area, options.aircraft);
 	if (!folder.ok) throw new LibraryError("bad-request", folder.error);
-	const name = cleanFileName(options.fileName);
-	if (!name) throw new LibraryError("bad-request", "Use a PDF, text (.md, .txt, .csv) or image (.png, .jpg, .gif, .webp) file.");
+	const name = course ? courseUploadName(options.fileName) : cleanFileName(options.fileName);
+	if (!name) {
+		throw new LibraryError(
+			"bad-request",
+			course ? "The Course area takes one file: the course .json file." : "Use a PDF, text (.md, .txt, .csv) or image (.png, .jpg, .gif, .webp) file.",
+		);
+	}
 
 	const root = await realLibrary(libraryDir);
 	const dir = await ensureFolder(root, folder.folder);
@@ -161,7 +172,12 @@ export async function saveLibraryFile(libraryDir: string, body: Readable, option
 			body.pipe(out);
 		});
 		if (size === 0) throw new LibraryError("bad-request", "The file is empty.");
-		if (!contentMatchesName(name, Buffer.concat(head).subarray(0, 16))) throw new LibraryError("wrong-content", `${name} does not look like the type its name says.`);
+		if (course) {
+			const checked = parseCourseBytes(await fsp.readFile(temp));
+			if (!checked.ok) throw new LibraryError("wrong-content", `This is not a valid course file: ${checked.error}.`);
+		} else if (!contentMatchesName(name, Buffer.concat(head).subarray(0, 16))) {
+			throw new LibraryError("wrong-content", `${name} does not look like the type its name says.`);
+		}
 		await fsp.rename(temp, target);
 	} catch (error) {
 		await fsp.rm(temp, { force: true });

@@ -1,0 +1,13 @@
+{
+  "subject": "paper-planes",
+  "legs": [],
+  "labels": {
+    "9-1.p01": "Which paper to use",
+    "9-1.p02": "The center fold",
+    "9-1.p03": "Folding the nose",
+    "9-1.p04": "What trim does",
+    "9-1.p05a": "Bending the back edges"
+  },
+  "notes": [{ "kind": "duplicate", "points": ["9-1.p01", "9-1.p02"], "note": "A made-up owner note that must not reach the course file." }],
+  "retired": {}
+}

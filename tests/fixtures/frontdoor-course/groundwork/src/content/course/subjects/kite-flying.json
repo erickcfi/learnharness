@@ -1,0 +1,11 @@
+{
+  "id": "kite-flying",
+  "title": "Kite flying",
+  "points": [
+    { "id": "9-2.p01", "label": "Open space", "text": "SECRET STATEMENT: you need room to run.", "acs": "ZZ.III.A.K1", "tier": "core", "cites": [], "loadBearing": false },
+    { "id": "9-2.p02", "label": "Trees and wires", "text": "SECRET STATEMENT: stay far from power lines.", "acs": "ZZ.III.A.R1", "tier": "core", "cites": [], "loadBearing": false },
+    { "id": "9-2.p03", "label": "Pulling in line", "text": "SECRET STATEMENT: reel in as the wind drops.", "acs": "", "tier": "core", "cites": [], "loadBearing": false }
+  ],
+  "citations": [],
+  "mnemonics": []
+}

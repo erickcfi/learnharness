@@ -61,6 +61,7 @@ async function seedTenant(db: dbm.Db, clerkUserId: string, suffix: string) {
 	await dbm.updateReportSettings(db, tenant.id, { weeklyReportEnabled: true, reportEmail: `${suffix}@example.com` });
 	await dbm.claimReportSend(db, { tenantId: tenant.id, kind: "session", chatId: "chat-1" });
 	await dbm.saveTopicLabel(db, { tenantId: tenant.id, chatId: "chat-1", topic: "METAR", isAviation: true, model: "claude-haiku-5-5" });
+	await dbm.recordLegStart(db, { tenantId: tenant.id, legId: "sample-leg", chatId: "chat-1" });
 	return { account, tenant };
 }
 

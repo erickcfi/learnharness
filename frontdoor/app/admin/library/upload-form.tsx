@@ -5,6 +5,8 @@ import { type FormEvent, useState } from "react";
 import { type FileOutcome, type SendResult, summarize, uploadBatch } from "./upload-batch.ts";
 
 const ACCEPT = ".pdf,.md,.txt,.csv,.png,.jpg,.jpeg,.gif,.webp";
+/** The Course area takes one file: the course file from frontdoor/course/build-course-file.ts. */
+const COURSE = "course";
 
 /**
  * Upload files to the library, one after another. Each file goes as the
@@ -89,8 +91,17 @@ export function UploadForm({ areas, maxMb }: { areas: Array<{ value: string; lab
 					<input id="aircraft" name="aircraft" type="text" placeholder="c172s" autoCapitalize="none" required />
 				</>
 			)}
-			<label htmlFor="file">Files (PDF, text or image, up to {maxMb} MB each)</label>
-			<input id="file" name="file" type="file" accept={ACCEPT} multiple required />
+			{area === COURSE ? (
+				<>
+					<label htmlFor="file">Course file (.json, made by build-course-file)</label>
+					<input key="course" id="file" name="file" type="file" accept=".json,application/json" required />
+				</>
+			) : (
+				<>
+					<label htmlFor="file">Files (PDF, text or image, up to {maxMb} MB each)</label>
+					<input key="files" id="file" name="file" type="file" accept={ACCEPT} multiple required />
+				</>
+			)}
 			<label htmlFor="replace" className="ad-row">
 				<input id="replace" type="checkbox" checked={replace} onChange={(e) => setReplace(e.target.checked)} /> Replace files that already exist
 			</label>
