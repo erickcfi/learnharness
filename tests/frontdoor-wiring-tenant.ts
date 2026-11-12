@@ -10,7 +10,8 @@
  *   POST /api/wiring/search   one Tavily search through upstream's src/server/search.ts
  *   POST /api/wiring/raw-call one Messages API call made by hand with the tenant's
  *                             variables, answering the status and body as received
- *   POST /api/wiring/print    one line to stdout and one to stderr
+ *   POST /api/wiring/print    one line to stdout, one error through the log
+ *                             filter, and two lines straight to stderr
  *
  * Upstream code needs tsx (an enum in its imports), so tsx is registered
  * here; Node strips this file's own types. A helper, not a test file.
@@ -54,10 +55,12 @@ async function rawCall(): Promise<unknown> {
 	return { status: res.status, body: await res.text() };
 }
 
-/** Writes straight to the streams, past this process's log filter, as Node's crash printout does. */
+/** One error through this process's log filter, then lines written straight
+ *  to the streams, past the filter, as Node's crash printout does. */
 async function print(): Promise<unknown> {
 	process.stdout.write("stdout routine line that must not reach the front door\n");
-	process.stderr.write('Error: tenant failure for pilot@example.com: "Explain the METAR for KSFO"\n');
+	console.error("[wiring] tenant failure:", new Error("Explain the METAR for KSFO to pilot@example.com"));
+	process.stderr.write('Error: tenant failure for pilot@example.com: "Explain the METAR for KSFO"\n    at print (/app/tenant.js:60:17)\n');
 	return { printed: true };
 }
 
