@@ -8,7 +8,8 @@
  * plain Node cannot strip.
  *
  * Order matters:
- *  1. The log filter, before anything can print (lockdown, cross-cutting req 3).
+ *  1. The log filter and crash listeners, before anything can print or
+ *     throw (lockdown, cross-cutting req 3).
  *  2. The start checks (wiring/env.ts), before Next.js or upstream code
  *     loads, so a bad Railway variable fails the deploy at once.
  *  3. Next.js, which serves only the front door's own pages under /account.
@@ -46,7 +47,8 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
 		log(`${signal}: stopping tenant servers and writing usage`);
 		void frontDoor
 			.close()
-			.catch((error: unknown) => log(`shutdown problem: ${(error as Error).message}`))
+			// The error's type only: log hygiene hides error messages (log-hygiene/filter.ts).
+			.catch((error: unknown) => log(`shutdown problem (${(error as Error | null)?.name ?? "Error"})`))
 			.finally(() => process.exit(0));
 	});
 }

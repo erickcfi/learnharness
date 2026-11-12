@@ -172,6 +172,7 @@ describe("the wired front door", () => {
 		assert.equal(env.LH_TAVILY_BASE_URL, `${env.LH_ANTHROPIC_BASE_URL}/tavily`);
 		assert.equal(env.ANTHROPIC_AUTH_TOKEN, "");
 		assert.equal(logFilter, true, "the tenant runs with the log filter loaded");
+		assert.equal(env.LH_LOG_MARK, undefined, "the log filter read its line mark at start and removed it");
 		for (const name of SECRET_NAMES) assert.equal(env[name], undefined, `${name} must not reach a tenant`);
 		const values = Object.values(env);
 		for (const secret of SECRET_VALUES) assert.ok(!values.some((v) => v.includes(secret)), "no secret value reaches a tenant");
@@ -180,10 +181,17 @@ describe("the wired front door", () => {
 	it("the tenant's errors reach the front door's log filtered, and its routine output does not", async () => {
 		await tenantPost(alice.cookie, "/api/wiring/print");
 		const prefix = `[tenant ${alice.tenantId}] `;
-		await waitFor(async () => (logs.some((l) => l.startsWith(prefix)) ? true : null), "the tenant's error line");
-		const line = logs.find((l) => l.startsWith(prefix)) ?? "";
-		assert.match(line, /Error: tenant failure for \[email\]: "\[text\]"/);
-		assert.ok(!logs.some((l) => l.includes("pilot@example.com") || l.includes("Explain the METAR")), "no email or session text");
+		const frame = `${prefix}    at print (/app/tenant.js:60:17)`;
+		await waitFor(async () => (logs.includes(frame) ? true : null), "the tenant's error lines");
+		const lines = logs.filter((l) => l.startsWith(prefix));
+		// The texts tests/frontdoor-wiring-tenant.ts prints, for their lengths.
+		const message = "Explain the METAR for KSFO to pilot@example.com";
+		const rawLine = 'Error: tenant failure for pilot@example.com: "Explain the METAR for KSFO"';
+		// Through the tenant's log filter: the code's own text, the error's type, its message hidden.
+		assert.ok(lines.includes(`${prefix}[wiring] tenant failure: Error: [message hidden, ${message.length} chars]`), lines.join("\n"));
+		// Straight to stderr, past the filter: a line of text is hidden, a stack frame passes.
+		assert.ok(lines.includes(`${prefix}[line hidden, ${rawLine.length} chars]`), lines.join("\n"));
+		assert.ok(!logs.some((l) => l.includes("pilot@example.com") || l.includes("Explain the METAR") || l.includes("tenant failure for")), "no email or session text");
 		assert.ok(!logs.some((l) => l.includes("stdout routine line")), "stdout is dropped");
 	});
 

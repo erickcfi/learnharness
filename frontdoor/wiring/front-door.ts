@@ -12,9 +12,10 @@
  *    SUPABASE_DB_URL outside production, both stores stay in memory.
  *  - Lockdown: each tenant's settings.json gets the library-only File access
  *    section, each tenant server gets LH_LIBRARY_DIR and runs with the log
- *    filter (`node --import log-hygiene/preload.ts`). What a tenant prints
- *    to stderr reaches this log filtered and capped; stdout is dropped
- *    (wiring/tenant-logs.ts).
+ *    filter and crash listeners (`node --import log-hygiene/preload.ts`).
+ *    What a tenant prints to stderr reaches this log filtered and capped;
+ *    a line that skipped the tenant's filter is hidden, and stdout is
+ *    dropped (wiring/tenant-logs.ts).
  *  - Metering: the meter listens on 127.0.0.1 on a free port. Each tenant
  *    server gets its pass key and the meter's address, never a real key.
  *    The real Anthropic and Tavily keys stay in this process.
@@ -45,6 +46,7 @@ import { createClerkGateway } from "../gateway/clerk.ts";
 import { createGateway } from "../gateway/handler.ts";
 import { studentRoutePolicy } from "../gateway/route-guard.ts";
 import type { RouteRule } from "../gateway/route-policy.ts";
+import { LOG_MARK_ENV } from "../log-hygiene/filter.ts";
 import { passKeyResolver } from "../metering/pass-key.ts";
 import { createMeteringProxy } from "../metering/proxy.ts";
 import { createMemoryMeteringStore } from "../metering/store.ts";
@@ -62,7 +64,7 @@ import { SupabaseAccountStore } from "../tenants/supabase-accounts.ts";
 import { type TenantEndpoint, TenantSupervisor } from "../tenants/supervisor.ts";
 import { connectDatabase, type DatabaseConnection } from "./database.ts";
 import { preflight } from "./env.ts";
-import { tenantStderrForwarder } from "./tenant-logs.ts";
+import { newLogMark, tenantStderrForwarder } from "./tenant-logs.ts";
 
 /** Loaded into every tenant server with --import (lockdown, cross-cutting req 3). */
 export const LOG_FILTER_MODULE = fileURLToPath(new URL("../log-hygiene/preload.ts", import.meta.url));
@@ -177,6 +179,9 @@ export async function startFrontDoor(options: FrontDoorOptions): Promise<FrontDo
 	const meterPort = await listen(meterServer, 0, "127.0.0.1");
 	const meterUrl = `http://127.0.0.1:${meterPort}`;
 
+	// The tenants' log filter starts each line it prints with this mark. A
+	// tenant's stderr line without it is hidden (wiring/tenant-logs.ts).
+	const logMark = newLogMark();
 	const supervisor = new TenantSupervisor({
 		serverScript: config.tenantServerScript,
 		volumeDir: config.volumeDir,
@@ -184,9 +189,13 @@ export async function startFrontDoor(options: FrontDoorOptions): Promise<FrontDo
 		nodeArgs: ["--import", LOG_FILTER_MODULE],
 		// Metering last. tenantServerEnv() drops any variable production safety blocks.
 		extraEnv: (tenantId) =>
-			tenantServerEnv({}, { ...tenantLockdownEnv(library), ...meteringEnvForTenant(tenantId, { passKeySecret: wiring.passKeySecret, proxyUrl: meterUrl }) }),
-		// Errors only, filtered, cut, and capped per tenant (wiring/tenant-logs.ts).
-		onOutput: tenantStderrForwarder({ log }),
+			tenantServerEnv({}, {
+				[LOG_MARK_ENV]: logMark,
+				...tenantLockdownEnv(library),
+				...meteringEnvForTenant(tenantId, { passKeySecret: wiring.passKeySecret, proxyUrl: meterUrl }),
+			}),
+		// Errors only, filtered, cut, and capped per tenant; unmarked lines hidden (wiring/tenant-logs.ts).
+		onOutput: tenantStderrForwarder({ log, mark: logMark }),
 		onExit: (tenantId, code, signal) => log(`tenant ${tenantId} server stopped (code ${code}, signal ${signal})`),
 		// W2-6, P2-04: the Owner's template is written again before every start.
 		prepare: (tenantId) => {
