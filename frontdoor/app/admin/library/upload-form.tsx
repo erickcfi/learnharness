@@ -102,23 +102,23 @@ export function UploadForm({ areas, maxMb }: { areas: Array<{ value: string; lab
 					<input key="files" id="file" name="file" type="file" accept={ACCEPT} multiple required />
 				</>
 			)}
-			<label htmlFor="replace" className="ad-row">
+			<label htmlFor="replace" className="dash-row">
 				<input id="replace" type="checkbox" checked={replace} onChange={(e) => setReplace(e.target.checked)} /> Replace files that already exist
 			</label>
-			<div className="ad-actions">
+			<div className="dash-actions">
 				<button type="submit" className="primary" disabled={busy}>
 					{busy ? "Uploading…" : "Upload files"}
 				</button>
 			</div>
 			{status && (
-				<p className="ad-note" role="status">
+				<p className="dash-note" role="status">
 					{status}
 				</p>
 			)}
 			{outcomes.length > 0 && (
-				<ul className="ad-list" aria-label="Upload results">
+				<ul className="dash-list" aria-label="Upload results">
 					{outcomes.map((o, i) => (
-						<li key={`${i}-${o.name}`} className="ad-row">
+						<li key={`${i}-${o.name}`} className="dash-row">
 							<strong>{o.name}</strong>: {o.message}
 						</li>
 					))}

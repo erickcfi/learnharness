@@ -19,7 +19,7 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
 		<>
 			<Flash done={param(q.done)} error={param(q.error)} />
 			<h1>Students</h1>
-			<nav className="ad-tabs" aria-label="Period">
+			<nav className="dash-tabs" aria-label="Period">
 				{PERIODS.map((p) => (
 					<Link key={p} href={`/admin?period=${p}`} aria-current={p === period ? "page" : undefined}>
 						{PERIOD_LABELS[p]}
@@ -27,7 +27,7 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
 				))}
 			</nav>
 			<Totals o={o} />
-			{!o.billingConnected && <p className="ad-note">Plan, coupon, revenue and conversion show here after billing is connected.</p>}
+			{!o.billingConnected && <p className="dash-note">Plan, coupon, revenue and conversion show here after billing is connected.</p>}
 
 			{o.openAlerts.length > 0 && (
 				<>
@@ -35,17 +35,17 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
 					{o.openAlerts.map((a) => {
 						const row = names.get(a.tenantId);
 						return (
-							<div className="ad-card alert" key={a.id}>
-								<div className="ad-row">
-									<span className="ad-badge alert">{ALERT_LABELS[a.kind]}</span>
-									<Link className="ad-name" href={`/admin/students/${a.tenantId}`}>
+							<div className="dash-card alert" key={a.id}>
+								<div className="dash-row">
+									<span className="dash-badge alert">{ALERT_LABELS[a.kind]}</span>
+									<Link className="dash-name" href={`/admin/students/${a.tenantId}`}>
 										{row ? displayName(row) : a.tenantId.slice(0, 8)}
 									</Link>
 								</div>
-								<p className="ad-muted">
+								<p className="dash-muted">
 									{usd(a.windowCostUsd)} of model cost in 30 days passed the {usd(a.thresholdUsd)} line.
 								</p>
-								<div className="ad-actions">
+								<div className="dash-actions">
 									{row && <PauseButton tenantId={a.tenantId} paused={row.paused} back={back} name={displayName(row)} />}
 									<form method="post" action={`/admin/api/alerts/${a.id}/clear`}>
 										<input type="hidden" name="back" value={back} />
@@ -61,13 +61,13 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
 			<h2>
 				{o.rows.length} {o.rows.length === 1 ? "student" : "students"}
 			</h2>
-			{o.rows.length === 0 && <p className="ad-muted">No one has signed up yet.</p>}
-			<div className="ad-grid">
+			{o.rows.length === 0 && <p className="dash-muted">No one has signed up yet.</p>}
+			<div className="dash-grid">
 				{o.rows.map((r) => (
 					<StudentCard key={r.tenantId} r={r} billing={o.billingConnected} back={back} />
 				))}
 			</div>
-			<p className="ad-note">
+			<p className="dash-note">
 				{PERIOD_LABELS[period]}. Cost is model cost plus web search fees. Dates are Salinas time.
 			</p>
 		</>
@@ -81,40 +81,40 @@ function displayName(r: TenantRow): string {
 function Totals({ o }: { o: Overview }) {
 	const t = o.totals;
 	return (
-		<div className="ad-stats">
-			<div className="ad-stat">
+		<div className="dash-stats">
+			<div className="dash-stat">
 				<b>{t.students}</b>
 				<span>
 					{t.byStatus.trial} trial · {t.byStatus.active} active · {t.byStatus.paused} paused
 				</span>
 			</div>
-			<div className="ad-stat">
+			<div className="dash-stat">
 				<b>{usd(t.costUsd)}</b>
 				<span>
 					Cost ({usd(t.modelCostUsd)} model, {usd(t.searchFeeUsd)} search)
 				</span>
 			</div>
-			<div className="ad-stat">
+			<div className="dash-stat">
 				<b>{o.billingConnected ? usd(t.revenueUsd) : "–"}</b>
 				<span>{o.billingConnected ? `Revenue · margin ${usd(t.marginUsd)}` : `Revenue: ${BILLING_PENDING.toLowerCase()}`}</span>
 			</div>
-			<div className="ad-stat">
+			<div className="dash-stat">
 				<b>{o.billingConnected && t.conversionRate !== null ? `${Math.round(t.conversionRate * 100)}%` : "–"}</b>
 				<span>{o.billingConnected ? `Trial to paid (${t.converted} of ${t.trialsEnded})` : `Conversion: ${BILLING_PENDING.toLowerCase()}`}</span>
 			</div>
-			<div className="ad-stat">
+			<div className="dash-stat">
 				<b>{hours(t.studySeconds)}</b>
 				<span>Study time · {t.sessions} sessions</span>
 			</div>
-			<div className="ad-stat">
+			<div className="dash-stat">
 				<b>{t.searchCount}</b>
 				<span>Web searches</span>
 			</div>
-			<div className="ad-stat">
+			<div className="dash-stat">
 				<b>{t.nonAviationSessions}</b>
 				<span>Non-aviation sessions</span>
 			</div>
-			<div className="ad-stat">
+			<div className="dash-stat">
 				<b>{t.unpricedCalls}</b>
 				<span>Unpriced model calls</span>
 			</div>
@@ -124,22 +124,22 @@ function Totals({ o }: { o: Overview }) {
 
 function StudentCard({ r, billing, back }: { r: TenantRow; billing: boolean; back: string }) {
 	return (
-		<div className={`ad-card${r.alerts.length ? " alert" : ""}`}>
-			<div className="ad-row">
-				<Link className="ad-name" href={`/admin/students/${r.tenantId}`}>
+		<div className={`dash-card${r.alerts.length ? " alert" : ""}`}>
+			<div className="dash-row">
+				<Link className="dash-name" href={`/admin/students/${r.tenantId}`}>
 					{displayName(r)}
 				</Link>
-				<span className={`ad-badge ${r.status}`}>{STATUS_LABELS[r.status]}</span>
-				{r.roles.includes("owner") && <span className="ad-badge">Owner</span>}
+				<span className={`dash-badge ${r.status}`}>{STATUS_LABELS[r.status]}</span>
+				{r.roles.includes("owner") && <span className="dash-badge">Owner</span>}
 				{r.alerts.map((k) => (
-					<span key={k} className="ad-badge alert">
+					<span key={k} className="dash-badge alert">
 						{ALERT_LABELS[k]}
 					</span>
 				))}
-				{r.nonAviationSessions > 0 && <span className="ad-badge flag">{r.nonAviationSessions} non-aviation</span>}
+				{r.nonAviationSessions > 0 && <span className="dash-badge flag">{r.nonAviationSessions} non-aviation</span>}
 			</div>
-			{r.name && r.email && <div className="ad-muted">{r.email}</div>}
-			<dl className="ad-dl">
+			{r.name && r.email && <div className="dash-muted">{r.email}</div>}
+			<dl className="dash-dl">
 				<div>
 					<dt>Cost</dt>
 					<dd>{usd(r.costUsd)}</dd>
@@ -179,10 +179,10 @@ function StudentCard({ r, billing, back }: { r: TenantRow; billing: boolean; bac
 					</div>
 				)}
 			</dl>
-			{r.recentTopics.length > 0 && <p className="ad-note">Topics: {r.recentTopics.join(" · ")}</p>}
-			<div className="ad-actions">
+			{r.recentTopics.length > 0 && <p className="dash-note">Topics: {r.recentTopics.join(" · ")}</p>}
+			<div className="dash-actions">
 				<PauseButton tenantId={r.tenantId} paused={r.paused} back={back} name={displayName(r)} />
-				<Link className="ad-btn" href={`/admin/students/${r.tenantId}`}>
+				<Link className="dash-btn" href={`/admin/students/${r.tenantId}`}>
 					Details
 				</Link>
 			</div>

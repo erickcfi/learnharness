@@ -13,18 +13,18 @@ export default async function SessionTextPage({ params }: { params: Promise<{ te
 	const view = await rt.sessionText(tenantId, decodeURIComponent(chatId));
 	return (
 		<>
-			<p className="ad-muted">
+			<p className="dash-muted">
 				<Link href={`/admin/students/${tenantId}`}>← Back to the student</Link>
 			</p>
 			<h1>Session text</h1>
 			{view.allowed ? (
 				view.text === null ? (
-					<p className="ad-flash err">The student's tutor did not give this session. Try again in a minute.</p>
+					<p className="dash-flash err">The student's tutor did not give this session. Try again in a minute.</p>
 				) : (
-					<pre className="ad-text">{view.text}</pre>
+					<pre className="dash-text">{view.text}</pre>
 				)
 			) : (
-				<p className="ad-flash err">This student has not shared session text. You see only titles, topics and numbers.</p>
+				<p className="dash-flash err">This student has not shared session text. You see only titles, topics and numbers.</p>
 			)}
 		</>
 	);

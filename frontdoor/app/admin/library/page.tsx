@@ -21,21 +21,21 @@ export default async function LibraryPage({ searchParams }: { searchParams: Prom
 		<>
 			<Flash done={param(q.done)} error={param(q.error)} />
 			<h1>Library</h1>
-			<p className="ad-muted">Every student's tutor reads these files. Students cannot change them.</p>
+			<p className="dash-muted">Every student's tutor reads these files. Students cannot change them.</p>
 
 			{toRemove && (
-				<div className="ad-card alert" role="alertdialog" aria-labelledby="confirm-title">
+				<div className="dash-card alert" role="alertdialog" aria-labelledby="confirm-title">
 					<p id="confirm-title">
 						<strong>Remove {toRemove.name}?</strong> Tutors stop seeing it at once. This cannot be undone.
 					</p>
-					<form method="post" action="/admin/api/library/remove" className="ad-actions">
+					<form method="post" action="/admin/api/library/remove" className="dash-actions">
 						<input type="hidden" name="path" value={toRemove.relPath} />
 						<input type="hidden" name="confirm" value="yes" />
 						<input type="hidden" name="back" value="/admin/library" />
 						<button type="submit" className="danger">
 							Yes, remove it
 						</button>
-						<Link className="ad-btn" href="/admin/library">
+						<Link className="dash-btn" href="/admin/library">
 							Cancel
 						</Link>
 					</form>
@@ -43,7 +43,7 @@ export default async function LibraryPage({ searchParams }: { searchParams: Prom
 			)}
 
 			<h2>Add a file</h2>
-			<div className="ad-card">
+			<div className="dash-card">
 				<UploadForm areas={LIBRARY_AREAS.map((a) => ({ value: a, label: AREA_LABELS[a] }))} maxMb={LIBRARY_MAX_BYTES / (1024 * 1024)} />
 			</div>
 
@@ -55,24 +55,24 @@ export default async function LibraryPage({ searchParams }: { searchParams: Prom
 							{AREA_LABELS[area]} ({inArea.length})
 						</h2>
 						{area === "course" && (
-							<p className="ad-muted">
+							<p className="dash-muted">
 								The course file for the /course page. Students see the course only while a valid file is here. Make it with frontdoor/course/build-course-file.ts.
 							</p>
 						)}
 						{inArea.length === 0 ? (
-							<p className="ad-muted">No files yet.</p>
+							<p className="dash-muted">No files yet.</p>
 						) : (
-							<ul className="ad-list">
+							<ul className="dash-list">
 								{inArea.map((f) => (
-									<li key={f.relPath} className="ad-row" style={{ justifyContent: "space-between" }}>
+									<li key={f.relPath} className="dash-row" style={{ justifyContent: "space-between" }}>
 										<span>
-											{f.folder && <span className="ad-badge">{f.folder}</span>} {f.name}
+											{f.folder && <span className="dash-badge">{f.folder}</span>} {f.name}
 											<br />
-											<span className="ad-muted">
+											<span className="dash-muted">
 												{bytes(f.bytes)} · {day(f.modifiedAt, rt.timeZone)}
 											</span>
 										</span>
-										<Link className="ad-btn" href={`/admin/library?remove=${encodeURIComponent(f.relPath)}`}>
+										<Link className="dash-btn" href={`/admin/library?remove=${encodeURIComponent(f.relPath)}`}>
 											Remove
 										</Link>
 									</li>

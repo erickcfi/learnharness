@@ -22,9 +22,9 @@ export const viewport: Viewport = { width: "device-width", initialScale: 1, them
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
 	return (
-		<div className="ad">
+		<div className="dash">
 			<AdminNav />
-			<main className="ad-main">{children}</main>
+			<main className="dash-main">{children}</main>
 			{/* AGPL legal notices (frontdoor/legal-notices). */}
 			<footer style={{ padding: "12px 16px" }}>
 				<LegalNoticeLine commit={process.env.RAILWAY_GIT_COMMIT_SHA} />

@@ -12,22 +12,22 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
 			<Flash done={param(q.done)} error={param(q.error)} />
 			<h1>Settings</h1>
 			<h2>Cost thresholds</h2>
-			<form method="post" action="/admin/api/thresholds" className="ad-card">
+			<form method="post" action="/admin/api/thresholds" className="dash-card">
 				<input type="hidden" name="back" value="/admin/settings" />
 				<label htmlFor="alertUsd">Alert at this model cost in 30 days ($)</label>
 				<input id="alertUsd" name="alertUsd" type="text" inputMode="decimal" defaultValue={s.alertUsd.toFixed(2)} required />
 				<label htmlFor="autopauseUsd">Pause the student at this model cost in 30 days ($)</label>
 				<input id="autopauseUsd" name="autopauseUsd" type="text" inputMode="decimal" defaultValue={s.autopauseUsd.toFixed(2)} required />
-				<p className="ad-note">
+				<p className="dash-note">
 					Each student's model cost over the last 30 days is checked against these. An alert shows on the Students page. Autopause stops the tutor for
 					that student until you unpause them. The alert must be lower than autopause.
 				</p>
-				<div className="ad-actions">
+				<div className="dash-actions">
 					<button type="submit" className="primary">
 						Save
 					</button>
 				</div>
-				<p className="ad-note">Last changed {dayTime(s.updatedAt, rt.timeZone)}.</p>
+				<p className="dash-note">Last changed {dayTime(s.updatedAt, rt.timeZone)}.</p>
 			</form>
 		</>
 	);
