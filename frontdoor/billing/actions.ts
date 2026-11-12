@@ -31,7 +31,7 @@
 import type Stripe from "stripe";
 import { getCurrentSubscription, getTenant, listSubscriptions, setStripeCustomerId } from "../db/index.ts";
 import { type PlanId, TRIAL } from "../plans/index.ts";
-import { accessFor } from "./access.ts";
+import { planAccessFor } from "./access.ts";
 import { isPlanId, planById } from "./catalog.ts";
 import { PLANS_PATH, TESTER_COUPON_ID } from "./config.ts";
 import { checkoutTermsText } from "./copy.ts";
@@ -155,7 +155,8 @@ export async function billingState(
 	input: { tenantId: string; email: string | null; checkoutSessionId?: string | null; notice?: BillingNotice | null; bought?: string | null },
 ): Promise<BillingViewOn> {
 	const now = new Date(core.now());
-	const access = await accessFor(core.db, input.tenantId, now);
+	// The plan as it is: the Owner's own tenant may study without one, but the screen still shows the real plan.
+	const access = await planAccessFor(core.db, input.tenantId, now);
 	const tenant = await getTenant(core.db, input.tenantId);
 	const sub = access.subscription;
 	let notice: BillingNotice | null = input.notice ?? null;

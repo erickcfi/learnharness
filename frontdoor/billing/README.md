@@ -46,6 +46,7 @@ The `/account/billing` routes sit behind the same login check as the tutor. Ever
   - Opening New chat goes to the plans screen.
   - Every page and read still works.
   - Testers (the tester coupon) skip the gate.
+  - The Owner's own account (the `owner` role, `isOwnerTenant` in `db/accounts.ts`) skips it too, with or without a subscription, and is never refused as "no plan" or "plan ended". Staff does not skip it. The plans screen still shows the Owner's real plan.
 - **Buy now** is one subscription update: `trial_end: now`, the new price, `proration_behavior: always_invoice`, `payment_behavior: pending_if_incomplete`. The same tenant keeps everything.
 - **Ending.** When a subscription really ends, the webhook calls `startRetention(tenantId, endedAt)`. If the student subscribes again during retention, it calls `endRetention`.
   - These calls run after the event's database transaction commits, because w2-pause's retention writes through its own database handle.

@@ -7,21 +7,40 @@
  *               (unpaid, paused). Chats and records stay readable.
  *   no-plan     never subscribed (or only a refused trial): the plans screen
  *
+ * The Owner's own tenant (owner role, db/accounts.ts isOwnerTenant) is
+ * always open, with or without a subscription: accessFor checks the role
+ * whenever the plan alone would not be open. The plans screen shows the
+ * plan as it is (planAccessFor). Staff is not exempt.
+ *
  * The gateway asks on page loads and on requests that start model work, so
  * the answer is remembered for a few seconds per tenant, and forgotten at
  * once when a webhook or a billing action changes that tenant.
  */
-import { type Db, getCurrentSubscription, getTenant, type Subscription } from "../db/index.ts";
+import { type Db, getCurrentSubscription, getTenant, isOwnerTenant, type Subscription } from "../db/index.ts";
 import { LIVE_STATUSES } from "./sync.ts";
 import { skipsTrialGate, type TrialLimits, TRIAL_LIMITS, type TrialUsage, trialUsage } from "./trial.ts";
 
-export type Access =
+/** What the subscription alone allows. */
+export type PlanAccess =
 	| { state: "open"; subscription: Subscription; tester: boolean; usage: TrialUsage | null }
 	| { state: "trial-used"; subscription: Subscription; usage: TrialUsage }
 	| { state: "ended"; subscription: Subscription | null; retentionEndsAt: Date | null }
 	| { state: "no-plan"; subscription: Subscription | null };
 
+/** The Owner's own tenant: open whatever the plan says. */
+export type OwnerAccess = { state: "open"; owner: true; subscription: Subscription | null; tester: false; usage: null };
+
+export type Access = PlanAccess | OwnerAccess;
+
+/** What the gates use: the plan's answer, except that the Owner's own tenant is always open. */
 export async function accessFor(db: Db, tenantId: string, now: Date, limits: TrialLimits = TRIAL_LIMITS): Promise<Access> {
+	const access = await planAccessFor(db, tenantId, now, limits);
+	if (access.state !== "open" && (await isOwnerTenant(db, tenantId))) return { state: "open", owner: true, subscription: access.subscription, tester: false, usage: null };
+	return access;
+}
+
+/** What the subscription alone allows, with no Owner exemption (the plans screen's status). */
+export async function planAccessFor(db: Db, tenantId: string, now: Date, limits: TrialLimits = TRIAL_LIMITS): Promise<PlanAccess> {
 	const [tenant, sub] = await Promise.all([getTenant(db, tenantId), getCurrentSubscription(db, tenantId)]);
 	if (tenant?.status === "retention") return { state: "ended", subscription: sub, retentionEndsAt: tenant.retentionEndsAt };
 	if (!sub) return { state: "no-plan", subscription: null };

@@ -42,6 +42,8 @@ on conflict do nothing;
 
 Taking the role away: `delete from account_roles where role = 'owner' and account_id = (select id from accounts where clerk_user_id = 'user_XXXXXXXX');`. It stops working at the next request.
 
+The owner role also exempts the Owner's own tutor: no subscription is needed, there is no plan-ended screen, and the day-91 job never deletes it. Its usage is still metered, and the $60 alert and $89 autopause still apply. The staff role gets none of this.
+
 ## Pages
 
 | Page | What |

@@ -3,7 +3,7 @@
  * Buy now, the customer portal, webhooks, coupons, and the billing emails.
  * See billing/README.md.
  */
-export { type Access, accessFor, AccessCache } from "./access.ts";
+export { type Access, accessFor, AccessCache, type PlanAccess, planAccessFor } from "./access.ts";
 export { billingState, buyNow, openPortal, removeTesterDiscount, startCheckout } from "./actions.ts";
 export { COUPONS, PriceBook, priceSpecs } from "./catalog.ts";
 export { clerkEmailLookup, type EmailLookup } from "./clerk-email.ts";

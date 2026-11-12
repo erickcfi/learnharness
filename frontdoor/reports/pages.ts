@@ -27,6 +27,7 @@ import { EMAIL_COLORS, escapeHtml } from "../email/layout.ts";
 import type { ClerkGateway } from "../gateway/auth.ts";
 import { clearCookie, parseCookies, serializeCookie } from "../gateway/cookies.ts";
 import { SESSION_COOKIE, SESSION_MAX_AGE_SECONDS, SESSION_RECHECK_MS, signSession, verifySession, type FrontDoorSession } from "../gateway/session.ts";
+import { errorLabel } from "../log-hygiene/filter.ts";
 import type { AccountStore } from "../tenants/accounts.ts";
 import { unsubscribeTokenExists } from "./store.ts";
 import type { StudentDirectory } from "./students.ts";
@@ -157,7 +158,7 @@ export function createReportPages(deps: ReportPagesDeps): ReportPages {
 		try {
 			active = await deps.clerk.isSessionActive(session.sessionId);
 		} catch (error) {
-			deps.log?.(`login re-check failed: ${(error as Error).message}`);
+			deps.log?.(`login re-check failed (${errorLabel(error)})`);
 			send(res, 503, page(settingsCopy.pageTitle, `<h1>${escapeHtml(settingsCopy.heading)}</h1><p>The login check is unavailable. Try again in a minute.</p>`));
 			return null;
 		}

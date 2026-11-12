@@ -21,6 +21,7 @@
  */
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { normalizeEmailAddress } from "../email/address.ts";
+import { errorLabel } from "../log-hygiene/filter.ts";
 import { type Access } from "./access.ts";
 import { billingState, buyNow, openPortal, startCheckout, type ActionResult } from "./actions.ts";
 import { isPlanId } from "./catalog.ts";
@@ -119,7 +120,7 @@ export function createBillingHook(core: BillingCore, options: BillingHookOptions
 		try {
 			return await core.access.get(tenantId);
 		} catch (error) {
-			core.log(`billing check failed for tenant ${tenantId}; request let through: ${(error as Error).message}`);
+			core.log(`billing check failed for tenant ${tenantId}; request let through (${errorLabel(error)})`);
 			return null;
 		}
 	}
@@ -160,7 +161,7 @@ export function createBillingHook(core: BillingCore, options: BillingHookOptions
 			if (!email) return finish(res, { error: "unavailable" }, ctx.setCookie);
 			return finish(res, await startCheckout(core, { tenantId: ctx.tenantId, email, planId: plan, origin: ctx.origin }), ctx.setCookie);
 		} catch (error) {
-			core.log(`billing ${action} failed for tenant ${ctx.tenantId}: ${(error as Error).message}`);
+			core.log(`billing ${action} failed for tenant ${ctx.tenantId} (${errorLabel(error)})`);
 			return finish(res, { error: "unavailable" }, ctx.setCookie);
 		}
 	}

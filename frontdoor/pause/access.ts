@@ -12,13 +12,18 @@
  * Retention wins over a pause. W2-8 can add states here (for example
  * "trial time used up") without touching the gateway.
  *
+ * The Owner's own tenant (owner role, db/accounts.ts isOwnerTenant) never
+ * reads as retention, so it never gets the plan-ended screen and the meter
+ * does not refuse it for that. A pause (autopause or the Owner) still
+ * applies. Staff is not exempt.
+ *
  * The reader remembers each answer for a few seconds, so a page load does
  * not always cost a database read, and for up to a minute when the
  * database is down. With nothing remembered and the database down it
  * throws AccessUnavailableError; each caller decides what that means (the
  * screens fail open, because the meter's own pause check fails closed).
  */
-import type { Db, PauseReason } from "../db/index.ts";
+import { type Db, isOwnerTenant, type PauseReason } from "../db/index.ts";
 import { one } from "../db/db.ts";
 
 export type TenantAccess =
@@ -38,7 +43,7 @@ export async function readTenantAccess(db: Db, tenantId: string, now: Date = new
 		[tenantId],
 	);
 	if (!row) return { state: "gone" };
-	if (row.status === "retention" && row.retention_ends_at) {
+	if (row.status === "retention" && row.retention_ends_at && !(await isOwnerTenant(db, tenantId))) {
 		const retentionEndsAt = asDate(row.retention_ends_at);
 		return { state: "retention", retentionEndsAt, expired: retentionEndsAt.getTime() <= now.getTime() };
 	}

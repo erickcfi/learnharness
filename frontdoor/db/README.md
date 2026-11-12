@@ -60,6 +60,7 @@ Main entry points by package:
 - **Dashboard:** `listTenantOverview`, `usageTotals`, `revenueTotals`, `studySummary`, `listOpenAlerts`, `clearAlert`, `unpauseTenant`, `updateOwnerSettings`, `canShowSessionText`, `grantConsent`, `revokeConsent`, `saveTopicLabel`.
 - **Reports:** `getReportSettings`, `updateReportSettings`, `unsubscribeByToken`, `listWeeklyRecipients`, `claimReportSend`, `markReportSent`.
 - **Day 91:** `listTenantsDueForDeletion`, `deleteTenantAndAccount` (the caller deletes the tenant folder).
+- **The Owner's exemptions:** `isOwnerTenant(db, tenantId)` is the one check that the tenant's account holds the `owner` role. The trial gate, the plan-ended screen and the day-91 job use it; metering, the alert and autopause do not. Staff is not exempt.
 - **Course:** `recordLegStart`, `listLegStarts`. Call them through `frontdoor/course/marks.ts`, which keeps the page working while the table is missing.
 
 Money comes back as numbers of dollars (`costUsd`, `feeUsd`) or whole cents (`amountPaidCents`). A model call with `costUsd: null` is unpriced: it is stored and counted (`unpricedCalls` in `usageTotals`), but adds nothing to the cost sums, so it never moves a tenant toward the alert or autopause. Times are `Date`s. Weekly report weeks are `YYYY-MM-DD` strings.

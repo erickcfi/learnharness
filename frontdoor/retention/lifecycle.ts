@@ -27,6 +27,9 @@
  *     Clerk, if deleteLogin is given (Clerk holds the email address). A
  *     failed Clerk delete stays on the pending list, and every run starts
  *     by trying the list again.
+ * The Owner's own tenant (owner role, db/accounts.ts isOwnerTenant) is never
+ * deleted or emptied: the job leaves it out and logs that it was kept.
+ * Staff is not exempt.
  * What is left: trial_claims (a keyed hash of the email and Stripe's card
  * fingerprint, written when the trial started, with no tenant link) and
  * stripe_events (Stripe event ids only). Stripe keeps its own records.
@@ -41,6 +44,7 @@ import {
 	deleteTenantAndAccount,
 	endRetention as dbEndRetention,
 	getTenant,
+	isOwnerTenant,
 	listTenantsDueForDeletion,
 	startRetention as dbStartRetention,
 	type Tenant,
@@ -185,7 +189,12 @@ export function createRetention(options: RetentionOptions): Retention {
 	async function run(): Promise<Day91Result> {
 		// Clerk users left over from an earlier run first.
 		await deletePendingLogins();
-		const due = await listTenantsDueForDeletion(db, now());
+		const due: Tenant[] = [];
+		for (const tenant of await listTenantsDueForDeletion(db, now())) {
+			// The Owner's own tenant is never deleted or emptied. If the check fails, the run stops here and deletes nothing.
+			if (await isOwnerTenant(db, tenant.id)) log(`day-91: tenant ${tenant.id} belongs to the Owner; kept`);
+			else due.push(tenant);
+		}
 		const result: Day91Result = { due: due.length, deleted: 0, failed: 0, deletedIds: [], loginsPending: 0 };
 		for (const tenant of due) {
 			try {

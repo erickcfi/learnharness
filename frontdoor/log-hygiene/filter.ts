@@ -27,7 +27,10 @@
  *
  * Known limit: the first argument is trusted as the code's own message.
  * Upstream's own messages print ids, counts and times only (checked at
- * 713377f).
+ * 713377f). The front door's own log lines never put an error message in
+ * it: they name the error with errorLabel (class and code) instead
+ * (2026-11-11). Node's warnings print their name and code only
+ * (warnings.ts).
  *
  * Framework-free and runnable by plain Node (type stripping).
  */
@@ -109,6 +112,32 @@ export function isErrorLike(value: unknown): value is ErrorLike {
 		value !== null && typeof value === "object" &&
 		typeof (value as ErrorLike).message === "string" && typeof (value as ErrorLike).stack === "string"
 	);
+}
+
+const IDENTIFIER = /^[A-Za-z_$][\w$]{0,39}$/;
+const CODE = /^[A-Za-z0-9_.:-]{1,40}$/;
+
+/**
+ * An error's class and code, for the text of a log line: "TypeError",
+ * "StripeInvalidRequestError [code resource_missing] [status 404]". An
+ * HTTP status (status or statusCode, a number) is kept too. Never its
+ * message, which can carry an email address or student text (a Stripe or
+ * database message, for example). For a log that takes one line of text,
+ * where the error cannot be its own console argument.
+ */
+export function errorLabel(error: unknown): string {
+	if (error === null || typeof error !== "object") return "not an Error";
+	const e = error as ErrorLike & { status?: unknown; statusCode?: unknown };
+	const ctor = (error as { constructor?: { name?: unknown } }).constructor?.name;
+	const name =
+		typeof e.name === "string" && e.name !== "Error" && IDENTIFIER.test(e.name)
+			? e.name
+			: typeof ctor === "string" && ctor !== "Object" && IDENTIFIER.test(ctor)
+				? ctor
+				: "Error";
+	const code = typeof e.code === "string" || typeof e.code === "number" ? String(e.code) : "";
+	const status = [e.status, e.statusCode].find((s): s is number => Number.isInteger(s) && (s as number) >= 100 && (s as number) <= 599);
+	return `${name}${CODE.test(code) ? ` [code ${code}]` : ""}${status !== undefined ? ` [status ${status}]` : ""}`;
 }
 
 /** An error message: kept when it is a short token (a code, a word), else
