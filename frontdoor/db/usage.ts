@@ -28,6 +28,27 @@ export interface ModelUsageInput {
 	costUsd: number | null;
 	/** The provider's request or message ID, so a retried record is not counted twice. */
 	requestId?: string;
+	/** True when the call went out with the student's own Anthropic key (own_key, migration 20261113000100). Default false. */
+	ownKey?: boolean;
+}
+
+/**
+ * Which model cost to add up (2026-11-13, docs/decisions/2026-11-13-own-ai-key.md):
+ *   all         every priced call (the trial's cost cap, as before)
+ *   north-aero  calls sent with North Aero's key (the alert and autopause, the dashboard's cost)
+ *   own-key     calls sent with the student's own key (the dashboard's "Own key" spend)
+ */
+export type CostScope = "all" | "north-aero" | "own-key";
+
+/**
+ * The Postgres codes for a missing table (42P01) or column (42703). Before
+ * the own-key migration is applied, own_key and own_ai_keys do not exist;
+ * then no call can have used an own key, so the reads below fall back to
+ * the old queries and the meter keeps working.
+ */
+export function isMissingOwnKeySchema(error: unknown): boolean {
+	const code = (error as { code?: unknown } | null)?.code;
+	return code === "42P01" || code === "42703";
 }
 
 export interface ModelUsage {
@@ -61,11 +82,16 @@ function toModelUsage(r: Row): ModelUsage {
 	};
 }
 
-/** Store one metered call. `recorded` is false when the request ID was already stored. */
+/**
+ * Store one metered call. `recorded` is false when the request ID was already stored.
+ * own_key is named only for an own-key call, so North Aero's calls are
+ * stored the same way before and after the own-key migration.
+ */
 export async function recordModelUsage(db: Db, u: ModelUsageInput): Promise<{ recorded: boolean }> {
+	const own = u.ownKey === true;
 	const rows = await db.query(
-		`insert into model_usage (tenant_id, occurred_at, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cache_write_1h_tokens, cost_usd, request_id)
-		 values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		`insert into model_usage (tenant_id, occurred_at, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cache_write_1h_tokens, cost_usd, request_id${own ? ", own_key" : ""})
+		 values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10${own ? ", true" : ""})
 		 on conflict (request_id) do nothing returning id`,
 		[
 			u.tenantId,
@@ -93,19 +119,27 @@ export async function listModelUsage(db: Db, tenantId: string, opts: { since?: D
 	).map(toModelUsage);
 }
 
-/** Model dollars from `since` up to and including `until`. Unpriced calls add nothing. */
-export async function modelCostSince(db: Db, tenantId: string, since: Date, until: Date = new Date()): Promise<number> {
-	const r = await must(db, "select coalesce(sum(cost_usd), 0) as total from model_usage where tenant_id = $1 and occurred_at > $2 and occurred_at <= $3", [
-		tenantId,
-		since,
-		until,
-	]);
-	return num(r.total);
+const SCOPE_FILTER: Record<CostScope, string> = { all: "", "north-aero": " and not own_key", "own-key": " and own_key" };
+
+/** Model dollars from `since` up to and including `until`, for one scope (default all). Unpriced calls add nothing. */
+export async function modelCostSince(db: Db, tenantId: string, since: Date, until: Date = new Date(), scope: CostScope = "all"): Promise<number> {
+	try {
+		const r = await must(
+			db,
+			`select coalesce(sum(cost_usd), 0) as total from model_usage where tenant_id = $1 and occurred_at > $2 and occurred_at <= $3${SCOPE_FILTER[scope]}`,
+			[tenantId, since, until],
+		);
+		return num(r.total);
+	} catch (error) {
+		// Before the own-key migration every call is North Aero's.
+		if (scope === "all" || !isMissingOwnKeySchema(error)) throw error;
+		return scope === "own-key" ? 0 : modelCostSince(db, tenantId, since, until, "all");
+	}
 }
 
 /** The rolling window the alert and autopause use (D15): the last `days` days up to `now`. */
-export async function rollingModelCost(db: Db, tenantId: string, now: Date = new Date(), days = 30): Promise<number> {
-	return modelCostSince(db, tenantId, new Date(now.getTime() - days * DAY_MS), now);
+export async function rollingModelCost(db: Db, tenantId: string, now: Date = new Date(), days = 30, scope: CostScope = "all"): Promise<number> {
+	return modelCostSince(db, tenantId, new Date(now.getTime() - days * DAY_MS), now, scope);
 }
 
 // ---- search counts (C3 req 7) ----
@@ -130,8 +164,9 @@ export async function searchUsageSince(db: Db, tenantId: string, since: Date): P
 
 export interface UsageTotal {
 	tenantId: string;
-	/** Priced calls only. */
+	/** Priced calls only, sent with North Aero's key. Own-key calls are in ownKeyUsageTotals. */
 	modelCostUsd: number;
+	/** Calls sent with North Aero's key. */
 	modelCalls: number;
 	/** Calls stored with no dollar amount (model missing from the price list). */
 	unpricedCalls: number;
@@ -139,20 +174,29 @@ export interface UsageTotal {
 	searchFeeUsd: number;
 }
 
-/** Model cost and search fees per tenant, for the dashboard. Every tenant gets a row. */
-export async function usageTotals(db: Db, range: { since?: Date; until?: Date } = {}): Promise<UsageTotal[]> {
-	const rows = await db.query(
-		`select t.id as tenant_id,
+function usageTotalsSql(ownKeyColumn: boolean): string {
+	return `select t.id as tenant_id,
 		        coalesce(m.cost, 0) as model_cost, coalesce(m.calls, 0) as model_calls, coalesce(m.unpriced, 0) as unpriced_calls,
 		        coalesce(s.n, 0) as search_count, coalesce(s.fee, 0) as search_fee
 		 from tenants t
 		 left join (select tenant_id, sum(cost_usd) as cost, count(*) as calls, count(*) filter (where cost_usd is null) as unpriced from model_usage
-		            where occurred_at >= $1 and occurred_at < $2 group by tenant_id) m on m.tenant_id = t.id
+		            where occurred_at >= $1 and occurred_at < $2${ownKeyColumn ? " and not own_key" : ""} group by tenant_id) m on m.tenant_id = t.id
 		 left join (select tenant_id, count(*) as n, sum(fee_usd) as fee from search_usage
 		            where occurred_at >= $1 and occurred_at < $2 group by tenant_id) s on s.tenant_id = t.id
-		 order by t.created_at, t.id`,
-		[range.since ?? new Date(0), range.until ?? new Date("9999-12-31T00:00:00Z")],
-	);
+		 order by t.created_at, t.id`;
+}
+
+/** North Aero's model cost and search fees per tenant, for the dashboard. Every tenant gets a row. */
+export async function usageTotals(db: Db, range: { since?: Date; until?: Date } = {}): Promise<UsageTotal[]> {
+	const params = [range.since ?? new Date(0), range.until ?? new Date("9999-12-31T00:00:00Z")];
+	let rows: Row[];
+	try {
+		rows = await db.query(usageTotalsSql(true), params);
+	} catch (error) {
+		// Before the own-key migration every call is North Aero's.
+		if (!isMissingOwnKeySchema(error)) throw error;
+		rows = await db.query(usageTotalsSql(false), params);
+	}
 	return rows.map((r) => ({
 		tenantId: String(r.tenant_id),
 		modelCostUsd: num(r.model_cost),
@@ -161,6 +205,28 @@ export async function usageTotals(db: Db, range: { since?: Date; until?: Date } 
 		searchCount: num(r.search_count),
 		searchFeeUsd: num(r.search_fee),
 	}));
+}
+
+export interface OwnKeyUsageTotal {
+	/** List-price dollars of the calls sent with the student's own key. The student pays Anthropic for them. */
+	costUsd: number;
+	calls: number;
+}
+
+/** Own-key model cost and calls per tenant in the range. Tenants with none are left out. Empty before the own-key migration. */
+export async function ownKeyUsageTotals(db: Db, range: { since?: Date; until?: Date } = {}): Promise<Map<string, OwnKeyUsageTotal>> {
+	let rows: Row[];
+	try {
+		rows = await db.query(
+			`select tenant_id, coalesce(sum(cost_usd), 0) as cost, count(*) as calls from model_usage
+			 where own_key and occurred_at >= $1 and occurred_at < $2 group by tenant_id`,
+			[range.since ?? new Date(0), range.until ?? new Date("9999-12-31T00:00:00Z")],
+		);
+	} catch (error) {
+		if (!isMissingOwnKeySchema(error)) throw error;
+		rows = [];
+	}
+	return new Map(rows.map((r) => [String(r.tenant_id), { costUsd: num(r.cost), calls: num(r.calls) }]));
 }
 
 // ---- alerts (C3 req 5, D15) ----

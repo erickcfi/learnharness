@@ -62,7 +62,7 @@ export const PLANS_SCREEN = {
 	loading: "Loading your plan.",
 	off: "Plans are not available yet. Please check back soon.",
 	failed: "Your plan could not be loaded. Please reload this page in a minute.",
-	links: { tutor: "Open the tutor", help: "Help", terms: "Terms" },
+	links: { tutor: "Open the tutor", help: "Help", terms: "Terms", ownKey: "Your own AI key" },
 	trialHeading: "Start your free trial",
 	trialOffer: (trial: Trial, plan: Plan, priceCents: number) =>
 		`${trial.days} days, with up to ${trial.studyHours} hours of study. A card is required. After the trial, the ${plan.name} plan is ${usd(priceCents)} ${everyText(plan.months)} unless you cancel before the trial ends.`,

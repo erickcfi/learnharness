@@ -36,10 +36,14 @@ export interface TrialUsage {
 	usedUp: "time" | "cost" | null;
 }
 
-/** Study time and model cost since the trial began, and whether a limit is reached. */
+/**
+ * Study time and model cost since the trial began, and whether a limit is reached.
+ * The cost is North Aero's only: calls sent with the student's own key do not
+ * count toward the trial's cost cap (Erick, 2026-11-13: "No it shouldn't").
+ */
 export async function trialUsage(db: Db, sub: Pick<Subscription, "tenantId" | "trialStart">, now: Date, limits: TrialLimits = TRIAL_LIMITS): Promise<TrialUsage> {
 	const since = sub.trialStart ?? new Date(0);
-	const [studySeconds, costUsd] = await Promise.all([studySecondsSince(db, sub.tenantId, since), modelCostSince(db, sub.tenantId, since, now)]);
+	const [studySeconds, costUsd] = await Promise.all([studySecondsSince(db, sub.tenantId, since), modelCostSince(db, sub.tenantId, since, now, "north-aero")]);
 	const usedUp = studySeconds >= limits.studySeconds ? "time" : costUsd >= limits.costUsd ? "cost" : null;
 	return { studySeconds, costUsd, usedUp };
 }

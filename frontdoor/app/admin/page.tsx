@@ -68,7 +68,7 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
 				))}
 			</div>
 			<p className="dash-note">
-				{PERIOD_LABELS[period]}. Cost is model cost plus web search fees. Dates are Salinas time.
+				{PERIOD_LABELS[period]}. Cost is North Aero's model cost plus web search fees. Own-key spend is at list price, paid by the student to Anthropic, and is not in cost or margin. Dates are Salinas time.
 			</p>
 		</>
 	);
@@ -92,6 +92,12 @@ function Totals({ o }: { o: Overview }) {
 				<b>{usd(t.costUsd)}</b>
 				<span>
 					Cost ({usd(t.modelCostUsd)} model, {usd(t.searchFeeUsd)} search)
+				</span>
+			</div>
+			<div className="dash-stat">
+				<b>{usd(t.ownKeyCostUsd)}</b>
+				<span>
+					Own-key spend, paid by students · {t.ownKeyStudents} with own key
 				</span>
 			</div>
 			<div className="dash-stat">
@@ -131,6 +137,7 @@ function StudentCard({ r, billing, back }: { r: TenantRow; billing: boolean; bac
 				</Link>
 				<span className={`dash-badge ${r.status}`}>{STATUS_LABELS[r.status]}</span>
 				{r.roles.includes("owner") && <span className="dash-badge">Owner</span>}
+				{r.ownKey && <span className="dash-badge">Own key</span>}
 				{r.alerts.map((k) => (
 					<span key={k} className="dash-badge alert">
 						{ALERT_LABELS[k]}
@@ -176,6 +183,12 @@ function StudentCard({ r, billing, back }: { r: TenantRow; billing: boolean; bac
 					<div>
 						<dt>Unpriced calls</dt>
 						<dd>{r.unpricedCalls}</dd>
+					</div>
+				)}
+				{(r.ownKey || r.ownKeyCalls > 0) && (
+					<div>
+						<dt>Own-key spend</dt>
+						<dd>{usd(r.ownKeyCostUsd)}</dd>
 					</div>
 				)}
 			</dl>

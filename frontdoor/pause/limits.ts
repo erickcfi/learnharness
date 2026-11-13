@@ -37,7 +37,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 export const WINDOW_DAYS = 30;
 
 export interface CostTowardLimits {
-	/** Model cost in the last 30 days, whatever happened. What the dashboard shows. */
+	/** North Aero's model cost in the last 30 days, whatever happened. What the dashboard shows.
+	 *  Calls on the student's own key are left out here and in countedUsd (2026-11-13). */
 	rollingUsd: number;
 	/** The cost the thresholds compare: since countedSince. */
 	countedUsd: number;
@@ -58,8 +59,9 @@ export async function costTowardLimits(db: Db, tenantId: string, now: Date = new
 	const windowStart = new Date(now.getTime() - WINDOW_DAYS * DAY_MS);
 	const lastUnpausedAt = await lastUnpause(db, tenantId);
 	const countedSince = lastUnpausedAt && lastUnpausedAt > windowStart ? lastUnpausedAt : windowStart;
-	const rollingUsd = await rollingModelCost(db, tenantId, now, WINDOW_DAYS);
-	const countedUsd = countedSince === windowStart ? rollingUsd : await modelCostSince(db, tenantId, countedSince, now);
+	// Only North Aero's cost: calls on the student's own key are the student's to pay (2026-11-13).
+	const rollingUsd = await rollingModelCost(db, tenantId, now, WINDOW_DAYS, "north-aero");
+	const countedUsd = countedSince === windowStart ? rollingUsd : await modelCostSince(db, tenantId, countedSince, now, "north-aero");
 	return { rollingUsd, countedUsd, countedSince, lastUnpausedAt };
 }
 

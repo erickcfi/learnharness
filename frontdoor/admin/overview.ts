@@ -8,14 +8,20 @@
  *  - model cost, unpriced calls, searches and fees, alerts, pause state: the
  *    meter (model_usage, search_usage, alerts, pauses);
  *  - study time and sessions: the front door (study_time, PD1);
- *  - topics and non-aviation flags: topic_labels (N7).
+ *  - topics and non-aviation flags: topic_labels (N7);
+ *  - own AI key (2026-11-13): own_ai_keys for the "Own key" mark, and
+ *    model_usage rows marked own_key for the student's own spend. That
+ *    spend is kept apart: model cost, cost and margin are North Aero's only.
+ *    No part of a key is shown here, not even its last 4 characters.
  */
 import {
 	type Alert,
 	type DashboardStatus,
 	type Db,
 	listOpenAlerts,
+	listOwnAiKeyTenants,
 	listTenantOverview,
+	ownKeyUsageTotals,
 	type Plan,
 	revenueTotals,
 	type Role,
@@ -40,14 +46,20 @@ export interface TenantRow {
 	plan: Plan | null;
 	/** Promotion code or coupon, with its percent off, for example "20% off". Null when none. */
 	coupon: string | null;
+	/** North Aero's model cost: calls on North Aero's key. */
 	modelCostUsd: number;
 	modelCalls: number;
 	/** Calls to a model missing from the price list: stored with no dollar amount. */
 	unpricedCalls: number;
 	searchCount: number;
 	searchFeeUsd: number;
-	/** Model cost plus search fees. */
+	/** North Aero's cost: model cost plus search fees. Own-key spend is not in it. */
 	costUsd: number;
+	/** The student has their own Anthropic key saved now. */
+	ownKey: boolean;
+	/** List-price dollars of calls on the student's own key in the period. The student pays Anthropic for them. */
+	ownKeyCostUsd: number;
+	ownKeyCalls: number;
 	revenueUsd: number;
 	studySeconds: number;
 	sessions: number;
@@ -67,8 +79,12 @@ export interface OverviewTotals {
 	modelCostUsd: number;
 	searchFeeUsd: number;
 	costUsd: number;
+	/** Students' own-key spend, apart from North Aero's cost. */
+	ownKeyCostUsd: number;
+	/** Students with their own key saved now. */
+	ownKeyStudents: number;
 	revenueUsd: number;
-	/** Revenue minus cost. */
+	/** Revenue minus North Aero's cost. */
 	marginUsd: number;
 	unpricedCalls: number;
 	searchCount: number;
@@ -175,7 +191,7 @@ export async function buildOverview(db: Db, options: OverviewOptions): Promise<O
 	const now = options.now ?? new Date();
 	const timeZone = options.timeZone ?? DASHBOARD_TIME_ZONE;
 	const { since, until } = periodRange(options.period, now, timeZone);
-	const [overview, usage, revenue, study, meta, openAlerts, billingConnected] = await Promise.all([
+	const [overview, usage, revenue, study, meta, openAlerts, billingConnected, ownUsage, ownKeyTenants] = await Promise.all([
 		listTenantOverview(db),
 		usageTotals(db, { since, until }),
 		revenueTotals(db, { since, until }),
@@ -183,6 +199,8 @@ export async function buildOverview(db: Db, options: OverviewOptions): Promise<O
 		tenantMeta(db, now),
 		listOpenAlerts(db),
 		options.billingConnected ?? billingDataExists(db),
+		ownKeyUsageTotals(db, { since, until }),
+		listOwnAiKeyTenants(db),
 	]);
 	const only = options.tenantIds ? new Set(options.tenantIds) : null;
 	const tenants = overview.filter((o) => !only || only.has(o.tenantId));
@@ -215,6 +233,9 @@ export async function buildOverview(db: Db, options: OverviewOptions): Promise<O
 			searchCount: u?.searchCount ?? 0,
 			searchFeeUsd,
 			costUsd: round6(modelCostUsd + searchFeeUsd),
+			ownKey: ownKeyTenants.has(o.tenantId),
+			ownKeyCostUsd: round6(ownUsage.get(o.tenantId)?.costUsd ?? 0),
+			ownKeyCalls: ownUsage.get(o.tenantId)?.calls ?? 0,
 			revenueUsd: (revenueBy.get(o.tenantId) ?? 0) / 100,
 			studySeconds: s?.activeSeconds ?? 0,
 			sessions: s?.sessions ?? 0,
@@ -247,6 +268,8 @@ export async function buildOverview(db: Db, options: OverviewOptions): Promise<O
 			modelCostUsd: round6(sum((r) => r.modelCostUsd)),
 			searchFeeUsd: round6(sum((r) => r.searchFeeUsd)),
 			costUsd,
+			ownKeyCostUsd: round6(sum((r) => r.ownKeyCostUsd)),
+			ownKeyStudents: rows.filter((r) => r.ownKey).length,
 			revenueUsd,
 			marginUsd: round6(revenueUsd - costUsd),
 			unpricedCalls: sum((r) => r.unpricedCalls),

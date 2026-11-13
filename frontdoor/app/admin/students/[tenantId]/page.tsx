@@ -40,6 +40,7 @@ export default async function StudentPage({
 			<div className="dash-row">
 				<span className={`dash-badge ${r.status}`}>{STATUS_LABELS[r.status]}</span>
 				{r.roles.includes("owner") && <span className="dash-badge">Owner</span>}
+				{r.ownKey && <span className="dash-badge">Own key</span>}
 				{r.alerts.map((k) => (
 					<span key={k} className="dash-badge alert">
 						{ALERT_LABELS[k]}
@@ -47,6 +48,7 @@ export default async function StudentPage({
 				))}
 				{r.name && r.email && <span className="dash-muted">{r.email}</span>}
 			</div>
+			{r.ownKey && <p className="dash-note">This student uses their own Anthropic key. Their model calls are paid by them and do not count toward the alert or autopause.</p>}
 			<div className="dash-actions">
 				<PauseButton tenantId={tenantId} paused={r.paused} back={back} name={r.name ?? r.email ?? `Student ${r.shortId}`} />
 			</div>
@@ -63,6 +65,12 @@ export default async function StudentPage({
 					<div>
 						<dt>Model cost</dt>
 						<dd>{usd(r.modelCostUsd)}</dd>
+					</div>
+					<div>
+						<dt>Own-key spend</dt>
+						<dd>
+							{usd(r.ownKeyCostUsd)} ({r.ownKeyCalls} calls)
+						</dd>
 					</div>
 					<div>
 						<dt>Search fees</dt>

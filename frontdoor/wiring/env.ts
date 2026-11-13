@@ -12,12 +12,17 @@
  * out: no SUPABASE_DB_URL keeps accounts and usage in memory, no pass-key
  * secret makes a random one for this run, and a missing API key makes those
  * calls fail at the provider. Messages name variables, never their values.
+ *
+ * Optional: LH_OWN_KEY_SECRET (2026-11-13) encrypts students' own Anthropic
+ * keys (frontdoor/own-key). Unset, own keys are off. Set but not 32 bytes of
+ * base64, the start stops.
  */
 import { randomBytes } from "node:crypto";
 import { assertBillingEnv } from "../billing/config.ts";
 import { assertEmailEnv } from "../email/config.ts";
 import { loadConfig, type FrontDoorConfig } from "../gateway/config.ts";
 import { runStartupChecks, type StartupCheck } from "../gateway/startup-checks.ts";
+import { assertOwnKeyEnv, ownKeySecretFrom } from "../own-key/crypto.ts";
 import { assertProductionSafe } from "../production-safety/index.ts";
 import { assertTrialHashKey } from "../retention/trial.ts";
 
@@ -61,7 +66,15 @@ const assertFrontDoorConfig: StartupCheck = (env) => {
 };
 
 /** Every start check, in order. Any failure stops the start, with every reason listed. */
-export const STARTUP_CHECKS: readonly StartupCheck[] = [assertProductionSafe, assertWiringEnv, assertFrontDoorConfig, assertTrialHashKey, assertEmailEnv, assertBillingEnv];
+export const STARTUP_CHECKS: readonly StartupCheck[] = [
+	assertProductionSafe,
+	assertWiringEnv,
+	assertFrontDoorConfig,
+	assertTrialHashKey,
+	assertEmailEnv,
+	assertBillingEnv,
+	assertOwnKeyEnv,
+];
 
 export interface WiringConfig {
 	production: boolean;
@@ -71,6 +84,8 @@ export interface WiringConfig {
 	tavilyApiKey: string | undefined;
 	/** Without it (outside production) accounts and usage stay in memory. */
 	supabaseDbUrl: string | undefined;
+	/** LH_OWN_KEY_SECRET's 32 bytes, or null: students' own AI keys are off. */
+	ownKeySecret: Buffer | null;
 	/** Variables left out outside production, by name, for one warning at start. */
 	missing: string[];
 }
@@ -82,6 +97,7 @@ export function loadWiringConfig(env: Env): WiringConfig {
 		anthropicApiKey: env.ANTHROPIC_API_KEY ?? "",
 		tavilyApiKey: isSet(env, "TAVILY_API_KEY") ? env.TAVILY_API_KEY : undefined,
 		supabaseDbUrl: isSet(env, "SUPABASE_DB_URL") ? env.SUPABASE_DB_URL : undefined,
+		ownKeySecret: ownKeySecretFrom(env),
 		missing: Object.keys(PRODUCTION_SECRETS).filter((name) => !isSet(env, name)),
 	};
 }

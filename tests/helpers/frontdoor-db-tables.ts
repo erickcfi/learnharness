@@ -11,6 +11,7 @@ export const EXPECTED_TABLES = [
 	"course_leg_starts",
 	"invoices",
 	"model_usage",
+	"own_ai_keys",
 	"owner_settings",
 	"pauses",
 	"report_sends",
