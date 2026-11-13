@@ -64,6 +64,8 @@ async function fullStudent(volume: string) {
 	await q("insert into topic_labels (tenant_id, chat_id, topic, is_aviation, model) values ($1, 'chat_1', 'METAR', true, 'claude-haiku-5-5')", [id]);
 	await q("insert into consents (tenant_id, kind) values ($1, 'session_text_opt_in')", [id]);
 	await q("insert into course_leg_starts (tenant_id, leg_id, chat_id) values ($1, 'sample-leg', 'chat_1')", [id]);
+	// Sealed bytes only (own AI key, 2026-11-13); no real key.
+	await dbm.saveOwnAiKey(t.db, { tenantId: id, ciphertext: Buffer.alloc(40, 1), iv: Buffer.alloc(12, 2), authTag: Buffer.alloc(16, 3), last4: "TEST" });
 	await dbm.setStripeCustomerId(t.db, id, `cus_${id}`);
 	return { account, tenant, clerkUserId, dir, night };
 }

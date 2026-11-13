@@ -129,7 +129,7 @@ export function PlansView({ view, plans, trial }: { view: BillingView | null; pl
 			<p>
 				{/* A plain link on purpose: "/" is the tutor, served by the student's own server, not by this Next.js app. */}
 				{/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
-				<a href="/">{T.links.tutor}</a> · <a href="/help">{T.links.help}</a> · <a href={TERMS_PATH}>{T.links.terms}</a>
+				<a href="/">{T.links.tutor}</a> · <a href="/account/ai-key">{T.links.ownKey}</a> · <a href="/help">{T.links.help}</a> · <a href={TERMS_PATH}>{T.links.terms}</a>
 			</p>
 		</main>
 	);

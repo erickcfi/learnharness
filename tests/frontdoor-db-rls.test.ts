@@ -62,6 +62,8 @@ async function seedTenant(db: dbm.Db, clerkUserId: string, suffix: string) {
 	await dbm.claimReportSend(db, { tenantId: tenant.id, kind: "session", chatId: "chat-1" });
 	await dbm.saveTopicLabel(db, { tenantId: tenant.id, chatId: "chat-1", topic: "METAR", isAviation: true, model: "claude-haiku-5-5" });
 	await dbm.recordLegStart(db, { tenantId: tenant.id, legId: "sample-leg", chatId: "chat-1" });
+	// Sealed bytes only (own AI key, 2026-11-13); no real key.
+	await dbm.saveOwnAiKey(db, { tenantId: tenant.id, ciphertext: Buffer.alloc(40, 1), iv: Buffer.alloc(12, 2), authTag: Buffer.alloc(16, 3), last4: "TEST" });
 	return { account, tenant };
 }
 

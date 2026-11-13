@@ -22,6 +22,9 @@
  *  - Email reports (W2-10, reports/wiring.ts): the report loop and the
  *    /account/reports and /account/unsubscribe pages. The SES keys stay in
  *    this process too.
+ *  - Own AI keys (2026-11-13, frontdoor/own-key): the /account/ai-key page's
+ *    routes, and the meter's choice of key per call. A student's own key and
+ *    LH_OWN_KEY_SECRET stay in this process too; a tenant server never sees them.
  *
  * Tenant servers still get only the supervisor's short allowlist from this
  * process's environment, plus the two sections above (tenants/supervisor.ts).
@@ -52,6 +55,7 @@ import { createMeteringProxy } from "../metering/proxy.ts";
 import { createMemoryMeteringStore } from "../metering/store.ts";
 import { createSupabaseMeteringStore, type DurableMeteringStore } from "../metering/supabase-store.ts";
 import { meteringEnvForTenant } from "../metering/tenant-env.ts";
+import { startOwnKeys } from "../own-key/index.ts";
 import { createDataSafety, type DataSafety } from "../pause/data-safety.ts";
 import { tenantServerEnv } from "../production-safety/index.ts";
 import { endedSittingsSource } from "../study-time/queries.ts";
@@ -165,11 +169,23 @@ export async function startFrontDoor(options: FrontDoorOptions): Promise<FrontDo
 	fs.mkdirSync(library, { recursive: true });
 	const libraryOnly: FileAccessProvider = () => fileAccessTemplate(library);
 
+	// Own AI keys (frontdoor/own-key): off without LH_OWN_KEY_SECRET. Keys stay in this process.
+	const own = startOwnKeys({
+		secret: wiring.ownKeySecret,
+		db: db ?? null,
+		sessionSecret: config.sessionSecret,
+		trustForwardedHeaders: config.trustForwardedHeaders,
+		...(options.upstream?.anthropicBaseUrl ? { anthropicBaseUrl: options.upstream.anthropicBaseUrl } : {}),
+		log,
+	});
+	log(own.ownKeys.enabled ? "own AI keys: on" : "own AI keys: off (LH_OWN_KEY_SECRET is not set); every call uses North Aero's key");
+
 	// Metering: on 127.0.0.1 only, on a free port.
 	const meter = createMeteringProxy({
 		store: safety ? safety.wrapMeterStore(meteringStore) : meteringStore,
 		resolveTenant: passKeyResolver(wiring.passKeySecret),
 		anthropic: { apiKey: wiring.anthropicApiKey, ...(options.upstream?.anthropicBaseUrl ? { baseUrl: options.upstream.anthropicBaseUrl } : {}) },
+		ownKeys: own.ownKeys,
 		...(wiring.tavilyApiKey
 			? { tavily: { apiKey: wiring.tavilyApiKey, ...(options.upstream?.tavilyBaseUrl ? { baseUrl: options.upstream.tavilyBaseUrl } : {}) } }
 			: {}),
@@ -290,7 +306,11 @@ export async function startFrontDoor(options: FrontDoorOptions): Promise<FrontDo
 		billing,
 		course: course.endpoint,
 		admin: dashboard.admin,
-		studentRoutes: dashboard.studentRoutes,
+		// The dashboard's student routes (study time, session-text switch), then the own AI key's.
+		studentRoutes: {
+			handles: (pathname) => dashboard.studentRoutes.handles(pathname) || own.endpoint.handles(pathname),
+			handle: (req, res, tenantId, pathname) => (own.endpoint.handles(pathname) ? own.endpoint : dashboard.studentRoutes).handle(req, res, tenantId, pathname),
+		},
 		supervisor,
 		routePolicy,
 		provision: async (tenantId) => {
@@ -325,6 +345,7 @@ export async function startFrontDoor(options: FrontDoorOptions): Promise<FrontDo
 				const stopped = closeServer(server);
 				await dashboard.close();
 				course.close();
+				own.close();
 				await email.close();
 				await supervisor.stopAll();
 				await stopped;

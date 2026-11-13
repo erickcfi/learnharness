@@ -14,6 +14,7 @@ After every metered model call the meter stores the row, then the cost watch che
 
 - It reads the thresholds from `owner_settings` (w2-dashboard edits them) on every check.
 - The count is the tenant's model cost in the last 30 days, **but never from before the tenant's latest unpause**. Unpriced calls add nothing. Search fees are not part of it (D15 says model cost).
+- Calls on the student's own Anthropic key (`own_key`, 2026-11-13) are not part of it either: the student pays for them. Such a call does not start a check. See `docs/decisions/2026-11-13-own-ai-key.md`.
 - At or above the alert threshold: one open `cost_alert` row.
 - At or above the autopause threshold: a `pauses` row (reason `autopause`) and an `autopause` alert. The meter refuses the tenant's next call: it reads `pauses` on every call.
 - Alerts live in the `alerts` table only, for w2-dashboard to show (`listOpenAlerts`). PRD D15: alerts show on the dashboard only. There is no alert email.

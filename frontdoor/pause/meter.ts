@@ -31,7 +31,8 @@ export function withPauseRules<S extends MeteringStore>(store: S, rules: { watch
 		},
 		async recordCall(call) {
 			await store.recordCall(call);
-			rules.watch?.afterCall(call.tenantId);
+			// A call on the student's own key costs North Aero nothing, so it cannot move the count (2026-11-13).
+			if (!call.ownKey) rules.watch?.afterCall(call.tenantId);
 		},
 	};
 }

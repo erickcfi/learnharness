@@ -1,14 +1,15 @@
 /**
  * Log hygiene (PRD cross-cutting requirement 3): logs carry no session
- * text and no email addresses.
+ * text and no email addresses. Since 2026-11-13 (own AI keys), no API key
+ * either: an sk-... key becomes [key] wherever it is in a line.
  *
  * Owner decision, 2026-11-08: one filter wraps console in every tenant
  * server (loaded by preload.ts through `node --import`) and in the front
  * door. No upstream file changes. What it does to each console argument:
  *
  *  - The first argument, when it is a string, is the code's own message or
- *    format string: emails become [email], and quoted text that could be
- *    session text becomes "[text]".
+ *    format string: API keys become [key], emails become [email], and
+ *    quoted text that could be session text becomes "[text]".
  *  - Later string arguments keep only short tokens without spaces (ids,
  *    codes). Anything longer becomes [text]: it may be raw model or
  *    student text, such as a provider's stderr.
@@ -37,6 +38,12 @@
 import { format, inspect } from "node:util";
 
 const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g;
+/**
+ * An API key in the sk-... style: Anthropic's sk-ant-api03-..., and other
+ * providers' sk-... keys (2026-11-13, own AI keys). Hidden in every part of
+ * a line, the code's own message included.
+ */
+const API_KEY = /(?<![A-Za-z0-9])sk-[A-Za-z0-9][A-Za-z0-9_-]{15,}/g;
 const QUOTED = /"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`[^`\n]*`|“[^”\n]*”|‘[^’\n]*’/g;
 /**
  * One stack frame as V8 prints it: "    at name (file:line:col)",
@@ -63,9 +70,9 @@ export function isStackFrame(line: string): boolean {
 	return FRAME.test(line);
 }
 
-/** Emails become [email]; quoted text with spaces, or longer than a token, becomes [text]. */
+/** API keys become [key]; emails become [email]; quoted text with spaces, or longer than a token, becomes [text]. */
 export function redactLogText(text: string): string {
-	return text.replace(EMAIL, "[email]").replace(QUOTED, (quoted) => {
+	return text.replace(API_KEY, "[key]").replace(EMAIL, "[email]").replace(QUOTED, (quoted) => {
 		const inner = quoted.slice(1, -1);
 		return isToken(inner) ? quoted : `${quoted[0]}[text]${quoted[quoted.length - 1]}`;
 	});

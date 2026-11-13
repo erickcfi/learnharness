@@ -163,6 +163,7 @@ export function createSupabaseMeteringStore(db: Db, options: SupabaseMeteringSto
 				cacheWrite1hTokens: c.cacheWrite1hTokens,
 				costUsd: c.dollars,
 				requestId: c.requestId,
+				ownKey: c.ownKey === true,
 			});
 		} else {
 			await insertSearch(db, { tenantId: row.search.tenantId, occurredAt: row.search.at });

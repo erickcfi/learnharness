@@ -11,3 +11,4 @@ export * from "./study.ts";
 export * from "./reports.ts";
 export * from "./settings.ts";
 export * from "./course.ts";
+export * from "./own-keys.ts";

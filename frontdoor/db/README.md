@@ -19,7 +19,7 @@ Record in `docs/decisions/2026-11-08-database.md`.
 | `tenants` | One per student account: folder `tenants/<id>`, status (provisioning, ready, retention), retention end, Stripe customer | C1 req 2, 6 |
 | `account_roles` | owner or staff. No row means student | C7 req 1, D27 |
 | `consents` | session-text opt-in, tester written OK, with grant and revoke dates | C7 req 3, D19 |
-| `model_usage` | One row per model call: tokens (cache writes with their 1-hour part), list-price dollars (null when the model has no list price), provider request ID | C3 req 4 |
+| `model_usage` | One row per model call: tokens (cache writes with their 1-hour part), list-price dollars (null when the model has no list price), provider request ID, and `own_key` (true when the call used the student's own Anthropic key; migration `20261113000100`) | C3 req 4 |
 | `search_usage` | One row per web search and its fee ($0.008 Tavily default) | C3 req 7 |
 | `alerts` | Cost alert and autopause records. One open per tenant and kind | C3 req 5 |
 | `pauses` | Pause history. An open row means paused | C3 req 6 |
@@ -33,6 +33,7 @@ Record in `docs/decisions/2026-11-08-database.md`.
 | `topic_labels` | Haiku's aviation flag per session topic | C7 req 4 |
 | `owner_settings` | One row: alert $60, autopause $89 | C3 req 5 |
 | `course_leg_starts` | Course Legs a student started on `/course`: tenant, Leg id, the chat it opened, when (migration `20261111000100`, not applied yet; `frontdoor/course`) | Course (master, 2026-11-11) |
+| `own_ai_keys` | A student's own Anthropic key, AES-256-GCM encrypted with `LH_OWN_KEY_SECRET` (never in the database): ciphertext, nonce, tag, last 4 characters, dates. One per tenant (migration `20261113000100`, not applied yet; `frontdoor/own-key`) | Own AI key (master, 2026-11-13) |
 | `tenant_overview` (view) | Dashboard status: trial, active, paused, canceled, retention, none | C7 req 2 |
 
 Deleting a tenant's account (`deleteTenantAndAccount`) removes every row of that tenant through the foreign keys. `trial_claims` and `stripe_events` have no tenant link and stay.

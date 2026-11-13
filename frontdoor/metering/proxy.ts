@@ -14,12 +14,22 @@
  * POST /v1/messages/count_tokens (free, not metered) and POST
  * /tavily/search. Anything else gets 404, so nothing goes around the meter.
  *
+ * Own AI key (2026-11-13, docs/decisions/2026-11-13-own-ai-key.md): when the
+ * tenant has saved its own Anthropic key, its Anthropic calls go out with
+ * that key instead of North Aero's, and each usage row is marked ownKey.
+ * The key stays in the front door: the tenant still sends its pass key. If
+ * Anthropic refuses the student's key (401, 402, 403, 429, or a 400 about
+ * credit), the call is NOT sent again with North Aero's key: the tenant gets
+ * a 403 with a plain message instead. Searches always use North Aero's
+ * Tavily key.
+ *
  * Plain Node, no Next.js. The front door mounts `handle` on a private port.
- * Logs carry no session text: only tenant ids, statuses and error names.
+ * Logs carry no session text and no key: only tenant ids, statuses and error names.
  */
 
 import { randomUUID } from "node:crypto";
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from "node:http";
+import { OWN_KEY_LIMITED_MESSAGE, OWN_KEY_NO_CREDIT_MESSAGE, OWN_KEY_REFUSED_MESSAGE, OWN_KEY_UNREADABLE_MESSAGE } from "../own-key/copy.ts";
 import { listPrice } from "./price.ts";
 import { type MeteringStore, MeteringUnavailableError, type TokenUsage, UNAVAILABLE_MESSAGE } from "./store.ts";
 import { createUsageTap, usageFromMessage, type SeenUsage, type UsageTap } from "./usage.ts";
@@ -44,12 +54,41 @@ const DROP_REQUEST_HEADERS = new Set([
 /** Response headers that do not carry over: hop-by-hop, and length and encoding (fetch hands over a decoded body). */
 const DROP_RESPONSE_HEADERS = new Set(["connection", "keep-alive", "transfer-encoding", "content-encoding", "content-length"]);
 
+/**
+ * Which Anthropic key a tenant's call goes out with:
+ *   north-aero  North Aero's own key (no own key saved, or own keys off)
+ *   own         the student's own key, decrypted for this call only
+ *   unreadable  a key is saved but cannot be decrypted: the call is refused
+ */
+export type CallKey = { kind: "north-aero" } | { kind: "own"; apiKey: string } | { kind: "unreadable" };
+
+/** Where the proxy finds a tenant's own key (frontdoor/own-key). Throws MeteringUnavailableError when it cannot tell. */
+export interface OwnKeySource {
+	forCall(tenantId: string): Promise<CallKey>;
+}
+
+const NORTH_AERO_KEY: CallKey = { kind: "north-aero" };
+
+/** Statuses on which a student's own key may have been refused. Read the body to tell a 400 about credit. */
+const OWN_KEY_REFUSAL_STATUSES = new Set([400, 401, 402, 403, 429]);
+
+/** The tutor's message when Anthropic refused the student's own key, or null when the error is something else. */
+export function ownKeyRefusal(status: number, body: string): string | null {
+	if (status === 401 || status === 403) return OWN_KEY_REFUSED_MESSAGE;
+	if (status === 402) return OWN_KEY_NO_CREDIT_MESSAGE;
+	if (status === 429) return OWN_KEY_LIMITED_MESSAGE;
+	if (status === 400 && /credit balance/i.test(body)) return OWN_KEY_NO_CREDIT_MESSAGE;
+	return null;
+}
+
 export interface MeteringProxyOptions {
 	store: MeteringStore;
 	/** The tenant for a pass key, or null when the key is not valid (see pass-key.ts). */
 	resolveTenant: (passKey: string) => string | null;
 	/** The real Anthropic key, held only here. baseUrl is for tests. */
 	anthropic: { apiKey: string; baseUrl?: string };
+	/** Students' own Anthropic keys (frontdoor/own-key). Without it, every call uses North Aero's key. */
+	ownKeys?: OwnKeySource;
 	/** The real Tavily key, held only here. Without it, searches get 404. */
 	tavily?: { apiKey: string; baseUrl?: string };
 	/** Dollars for one call. Defaults to upstream's list price (price.ts). */
@@ -169,14 +208,26 @@ export function createMeteringProxy(options: MeteringProxyOptions): MeteringProx
 		void pending.finally(() => inFlight.delete(pending));
 	}
 
-	function recordCall(tenantId: string, model: string, usage: TokenUsage, requestId: string): void {
+	function recordCall(tenantId: string, model: string, usage: TokenUsage, requestId: string, ownKey: boolean): void {
 		track(async () => {
 			const dollars = price(model, usage);
-			await options.store.recordCall({ tenantId, at: now(), model, ...usage, dollars, requestId });
+			await options.store.recordCall({ tenantId, at: now(), model, ...usage, dollars, requestId, ...(ownKey ? { ownKey: true } : {}) });
 		}, "model call", tenantId);
 	}
 
-	async function forwardAnthropic(req: IncomingMessage, res: ServerResponse, target: string, body: Buffer, tenantId: string, metered: boolean): Promise<void> {
+	/**
+	 * `ownKey` is the student's own key, or null for North Aero's. With an own
+	 * key, a refusal is answered here and never retried with North Aero's key.
+	 */
+	async function forwardAnthropic(
+		req: IncomingMessage,
+		res: ServerResponse,
+		target: string,
+		body: Buffer,
+		tenantId: string,
+		metered: boolean,
+		ownKey: string | null,
+	): Promise<void> {
 		const controller = new AbortController();
 		// The tenant hung up (a stopped turn, an aborted job): stop the upstream call too.
 		res.on("close", () => {
@@ -187,13 +238,26 @@ export function createMeteringProxy(options: MeteringProxyOptions): MeteringProx
 		try {
 			upstream = await fetch(`${anthropicUrl}${target}`, {
 				method: "POST",
-				headers: forwardHeaders(req.headers, { "x-api-key": options.anthropic.apiKey }),
+				headers: forwardHeaders(req.headers, { "x-api-key": ownKey ?? options.anthropic.apiKey }),
 				body: new Uint8Array(body),
 				signal: controller.signal,
 			});
 		} catch (error) {
 			if (controller.signal.aborted) return;
 			throw error;
+		}
+		if (ownKey !== null && OWN_KEY_REFUSAL_STATUSES.has(upstream.status)) {
+			// An error body is small JSON. Read it whole to tell a credit refusal from another 400.
+			const errorBody = Buffer.from(await upstream.arrayBuffer());
+			const refusal = ownKeyRefusal(upstream.status, errorBody.toString("utf8"));
+			if (refusal) {
+				log(`metering: Anthropic refused tenant ${tenantId}'s own key (status ${upstream.status}); not retried with North Aero's key`);
+				sendError(res, "anthropic", 403, "permission_error", refusal);
+				return;
+			}
+			res.writeHead(upstream.status, responseHeaders(upstream));
+			res.end(errorBody);
+			return;
 		}
 		res.writeHead(upstream.status, responseHeaders(upstream));
 		res.flushHeaders();
@@ -235,7 +299,7 @@ export function createMeteringProxy(options: MeteringProxyOptions): MeteringProx
 			}
 			if (seen.usage) {
 				const requestId = upstream.headers.get("request-id") || seen.messageId || `proxy-${randomUUID()}`;
-				recordCall(tenantId, model ?? seen.model ?? "unknown", seen.usage, requestId);
+				recordCall(tenantId, model ?? seen.model ?? "unknown", seen.usage, requestId, ownKey !== null);
 			}
 		}
 	}
@@ -267,8 +331,16 @@ export function createMeteringProxy(options: MeteringProxyOptions): MeteringProx
 			sendError(res, api, 401, "authentication_error", "Invalid pass key.");
 			return;
 		}
+		// The own-key read runs beside the pause read. A pause still wins.
+		const keyLookup = api === "anthropic" && options.ownKeys ? options.ownKeys.forCall(tenantId) : null;
+		keyLookup?.catch(() => undefined);
 		if (await options.store.isPaused(tenantId)) {
 			sendError(res, api, 403, "permission_error", PAUSED_MESSAGE);
+			return;
+		}
+		const callKey = keyLookup ? await keyLookup : NORTH_AERO_KEY;
+		if (callKey.kind === "unreadable") {
+			sendError(res, api, 403, "permission_error", OWN_KEY_UNREADABLE_MESSAGE);
 			return;
 		}
 		let body: Buffer;
@@ -281,7 +353,7 @@ export function createMeteringProxy(options: MeteringProxyOptions): MeteringProx
 			return;
 		}
 		if (kind === "search") await forwardSearch(req, res, body, tenantId, options.tavily!.apiKey);
-		else await forwardAnthropic(req, res, `${url.pathname}${url.search}`, body, tenantId, kind === "messages");
+		else await forwardAnthropic(req, res, `${url.pathname}${url.search}`, body, tenantId, kind === "messages", callKey.kind === "own" ? callKey.apiKey : null);
 	}
 
 	return {

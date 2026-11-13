@@ -28,6 +28,9 @@ export interface CallRecord extends TokenUsage {
 	dollars: number | null;
 	/** Unique per call: Anthropic's request-id header, else the message id, else an id the proxy made. */
 	requestId: string;
+	/** True when the call went out with the student's own Anthropic key: the student pays for it,
+	 *  and it does not count toward the alert or autopause. Absent means North Aero's key. */
+	ownKey?: boolean;
 }
 
 /** One counted Tavily search (C3 requirement 7). */

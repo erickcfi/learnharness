@@ -25,6 +25,7 @@ These run alongside the build. Owner: Erick, unless stated. Status as of 2026-11
   - the AI notice
   - use of the LearnHarness name
   - Status: drafted 2026-11-08, kept in Erick's project folder until approved. Waiting for Erick's decisions on the marked items. The site shows "Coming soon." (`docs/decisions/launch-gates.md`, G2).
+  - Added 2026-11-13 (OK-01): the student's own AI key needs sentences in the privacy notice and terms (the key is stored encrypted, the student pays Anthropic directly, the student's text goes to Anthropic under the student's own account). Notes are in Erick's legal drafts folder, `own-ai-key-notes.md`.
 - **T6. Move the old ground school modules.** Claude does most of the move. Erick approves. Feeds P7-04.
   - Status: no work recorded.
 - **T7. Cost test.** Feeds gate G1 and the C3 model settings.
@@ -87,7 +88,15 @@ These run alongside the build. Owner: Erick, unless stated. Status as of 2026-11
 
 ## Review
 
-(none)
+### OK-01. A student's own AI key
+
+- **Owner:** Claude Code builds. The master reviews and merges. Erick approves the migration, the variable and the legal text.
+- **Asked:** Erick, 2026-11-13. Design by the master, 2026-11-13.
+- **Work:** a student pastes their own Anthropic API key on `/account/ai-key`. The front door checks it with Anthropic, stores it encrypted (AES-256-GCM, secret in `LH_OWN_KEY_SECRET`), and the meter sends that student's calls with it. No fallback to North Aero's key when Anthropic refuses it. Own-key calls are marked `own_key` in `model_usage`, do not count toward the alert or the $89 autopause, and show apart on the Owner dashboard. Record: `docs/decisions/2026-11-13-own-ai-key.md`.
+- **Done when:** merged; migration `20261113000100_own_ai_keys.sql` applied to Supabase; `LH_OWN_KEY_SECRET` set on staging; one own key saved, used and removed on staging; the privacy notice and terms have the own-key sentences (T5).
+- **Status (2026-11-13):** built on branch `own-ai-key`, gate green, not pushed. Migration not applied.
+- **Open for Erick:** whether own-key cost should still count toward the trial's $10 cost cap (it does today, unchanged); whether a student with an own key pays a different price (pricing is Erick's).
+- **Not built:** sign-in with a ChatGPT or Claude subscription (waits on a terms check); OpenAI keys (what they would take is in the record).
 
 ## Done
 
