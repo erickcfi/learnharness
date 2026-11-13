@@ -26,6 +26,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { after, before, describe, it } from "node:test";
 import { buildOverview } from "../frontdoor/admin/overview.ts";
+import { trialUsage } from "../frontdoor/billing/trial.ts";
 import * as dbm from "../frontdoor/db/index.ts";
 import { createTestDb, type TestDb } from "../frontdoor/db/testing.ts";
 import type { ClerkAuthResult } from "../frontdoor/gateway/auth.ts";
@@ -319,13 +320,27 @@ describe("own key: the database", () => {
 		const flags = await t.db.query("select own_key from model_usage where tenant_id = $1 order by id", [a.id]);
 		assert.deepEqual(flags.map((r) => r.own_key), [false, true, false]);
 		const since = new Date(now.getTime() - 60_000);
-		assert.equal(await dbm.modelCostSince(t.db, a.id, since, now), 5, "all: as before (the trial's cost cap)");
+		assert.equal(await dbm.modelCostSince(t.db, a.id, since, now), 5, "all: every priced call");
 		assert.equal(await dbm.modelCostSince(t.db, a.id, since, now, "north-aero"), 2);
 		assert.equal(await dbm.modelCostSince(t.db, a.id, since, now, "own-key"), 3);
 		assert.equal((await costTowardLimits(t.db, a.id, now)).rollingUsd, 2, "the alert and autopause count North Aero's cost only");
 		const totals = (await dbm.usageTotals(t.db, { since, until: new Date(now.getTime() + 1) })).find((x) => x.tenantId === a.id);
 		assert.deepEqual([totals?.modelCostUsd, totals?.modelCalls], [2, 2]);
 		assert.deepEqual((await dbm.ownKeyUsageTotals(t.db, { since, until: new Date(now.getTime() + 1) })).get(a.id), { costUsd: 3, calls: 1 });
+	});
+
+	it("the trial's cost cap counts North Aero's cost only (Erick, 2026-11-13)", async () => {
+		const a = await tenant();
+		const start = new Date("2026-11-13T08:00:00Z");
+		const now = new Date("2026-11-13T12:00:00Z");
+		await dbm.recordModelUsage(t.db, call(a.id, 4, false, new Date("2026-11-13T09:00:00Z")));
+		await dbm.recordModelUsage(t.db, call(a.id, 50, true, new Date("2026-11-13T10:00:00Z")));
+		const limits = { studySeconds: 7200, costUsd: 10 };
+		const usage = await trialUsage(t.db, { tenantId: a.id, trialStart: start }, now, limits);
+		assert.equal(usage.costUsd, 4, "the $50 own-key call is left out");
+		assert.equal(usage.usedUp, null, "own-key spending does not end the trial");
+		await dbm.recordModelUsage(t.db, call(a.id, 7, false, new Date("2026-11-13T11:00:00Z")));
+		assert.equal((await trialUsage(t.db, { tenantId: a.id, trialStart: start }, now, limits)).usedUp, "cost", "North Aero's cost still ends it at the cap");
 	});
 
 	it("before the migration is applied, the meter and the dashboard still work as before", async () => {
