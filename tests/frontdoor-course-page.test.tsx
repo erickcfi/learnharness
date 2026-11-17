@@ -251,7 +251,7 @@ describe("words and links", () => {
 		assert.equal(COURSE_COPY.summary(88, 3), "88 lessons in 3 stages.");
 		assert.equal(COURSE_COPY.summary(1, 1), "1 lesson in 1 stage.");
 		assert.equal(COURSE_COPY.minutes([25, 40]), "About 25 to 40 minutes");
-		assert.equal(COURSE_COPY.stage(1, "Before first solo"), "Stage 1: Before first solo");
+		assert.equal(COURSE_COPY.stage(1, "Before the first flight"), "Stage 1: Before the first flight");
 	});
 
 	it("the tutor's sidebar links to /course, recorded as an upstream change", () => {
