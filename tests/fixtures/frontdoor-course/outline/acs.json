@@ -1,0 +1,17 @@
+[
+  { "area": "I", "areaName": "Before Flying", "task": "A", "taskName": "Kite Selection", "code": "ZZ.I.A.K1", "type": "K", "text": "Kite shapes and sizes, including:" },
+  { "area": "I", "areaName": "Before Flying", "task": "A", "taskName": "Kite Selection", "code": "ZZ.I.A.K1a", "type": "K", "text": "Diamond kites" },
+  { "area": "I", "areaName": "Before Flying", "task": "A", "taskName": "Kite Selection", "code": "ZZ.I.A.K1b", "type": "K", "text": "Box kites" },
+  { "area": "I", "areaName": "Before Flying", "task": "A", "taskName": "Kite Selection", "code": "ZZ.I.A.K1c", "type": "K", "text": "Delta kites" },
+  { "area": "I", "areaName": "Before Flying", "task": "A", "taskName": "Kite Selection", "code": "ZZ.I.A.K2", "type": "K", "text": "Line strength and weight." },
+  { "area": "I", "areaName": "Before Flying", "task": "A", "taskName": "Kite Selection", "code": "ZZ.I.A.R1", "type": "R", "text": "Choosing a kite too large for the wind." },
+  { "area": "I", "areaName": "Before Flying", "task": "A", "taskName": "Kite Selection", "code": "ZZ.I.A.R2", "type": "R", "text": "Use and limitations of:" },
+  { "area": "I", "areaName": "Before Flying", "task": "A", "taskName": "Kite Selection", "code": "ZZ.I.A.R2a", "type": "R", "text": "Reels" },
+  { "area": "I", "areaName": "Before Flying", "task": "A", "taskName": "Kite Selection", "code": "ZZ.I.A.R2b", "type": "R", "text": "Gloves" },
+  { "area": "I", "areaName": "Before Flying", "task": "B", "taskName": "Launch Site", "code": "ZZ.I.B.K1", "type": "K", "text": "Power lines, trees, and other obstructions." },
+  { "area": "I", "areaName": "Before Flying", "task": "B", "taskName": "Launch Site", "code": "ZZ.I.B.R1", "type": "R", "text": "Launching near people or roads." },
+  { "area": "II", "areaName": "Flying", "task": "A", "taskName": "Launching", "code": "ZZ.II.A.K1", "type": "K", "text": "Running launch and assisted launch." },
+  { "area": "II", "areaName": "Flying", "task": "A", "taskName": "Launching", "code": "ZZ.II.A.K2", "type": "K", "text": "The wind window." },
+  { "area": "II", "areaName": "Flying", "task": "A", "taskName": "Launching", "code": "ZZ.II.A.R1", "type": "R", "text": "Line burns." },
+  { "area": "II", "areaName": "Flying", "task": "B", "taskName": "Landing the Kite", "code": "ZZ.II.B.K1", "type": "K", "text": "Walking the kite down." }
+]

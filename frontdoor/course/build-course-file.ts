@@ -1,24 +1,32 @@
 /**
- * Makes the course file (file.ts) from Erick's course design in Groundwork
- * (master, 2026-11-11). Run it on a machine that has Groundwork; never commit
- * what it writes (the repo is public, the curriculum is not).
+ * Makes the course file (file.ts) from North Aero's private lesson outline
+ * (docs/decisions/2026-11-17-course-outline.md). Run it on a machine that
+ * has the outline; never commit what it reads or writes (the repo is public,
+ * the outline is not).
  *
- *   node frontdoor/course/build-course-file.ts <groundwork folder> <output file>
+ *   node frontdoor/course/build-course-file.ts <outline.json> <acs.json> <regs.json> <out.json>
  *
  * Then upload the output on /admin/library, area "Course".
  *
- * It reads, from Groundwork:
- *  - scripts/courses/private-pilot.subjects.json: the subjects, in order
- *  - src/content/course/index.json: each subject's Legs, with title,
- *    outcome, stage ("when") and Point ids
- *  - scripts/courses/legs/<subject>.json: each Point's short label
- *  - src/content/course/subjects/<subject>.json: each Point's ACS codes
- *    (only the `id` and `acs` fields are read)
+ * Inputs:
+ *  - outline.json: the lessons in order, each { lesson, stage, group, title,
+ *    codes, minutes: [min, max], milestone } and, for a lesson on rules the
+ *    ACS does not cover, regs (for example "14 CFR 61.87(b), (c)"). An
+ *    optional id keeps a lesson's id when lessons are renumbered; without
+ *    it the id is "l" and the number (l05).
+ *  - acs.json: the ACS elements, each { area, areaName, task, taskName,
+ *    code, type, text }, in ACS order, with the FAA's wording.
+ *  - regs.json: { source, headings: { "14 CFR 61.87": "...", "14 CFR
+ *    61.87(b)": "..." } }, the eCFR headings, verbatim.
  *
- * It writes ids, stages, subjects, Legs, and for each Leg its title,
- * outcome, ACS codes and key point labels. Nothing else: no key point
- * statements, source passages or quizzes. The result is checked with the
- * same check the upload runs before it is written.
+ * It joins each lesson's codes with the FAA text, grouped by Task, in ACS
+ * order. When a lesson has sub-elements (K1c) but not their parent line
+ * (K1, covered by an earlier lesson), the parent line comes first, marked
+ * context, so the sub-elements read right. It stops, naming the problem,
+ * when a code is not in the ACS data, a lesson has no scope, a heading is
+ * missing, or the lessons are out of order. The result goes through the
+ * same check as the upload before it is written. The milestone is not
+ * carried over.
  *
  * Runnable by plain Node 26 (type stripping): relative imports with .ts
  * extensions, no TypeScript-only runtime syntax.
@@ -26,18 +34,37 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { COURSE_FORMAT, COURSE_VERSION, type CourseFile, type CourseLeg, type CourseStage, courseCounts, parseCourseFile } from "./file.ts";
+import {
+	type AcsElement,
+	type AcsTask,
+	allLessons,
+	COURSE_FORMAT,
+	COURSE_VERSION,
+	type CourseFile,
+	type CourseLesson,
+	type CourseStage,
+	courseCounts,
+	parentCode,
+	parseCourseFile,
+	type RegSection,
+} from "./file.ts";
+import { firstMessage, startUrlBytes } from "./first-message.ts";
 
-/** Groundwork's three stages (src/lib/course/catalog.ts), in order. The ids are its `when` values. */
-export const STAGES: ReadonlyArray<{ id: string; title: string }> = [
-	{ id: "solo", title: "Before you solo" },
-	{ id: "cross-country", title: "Before cross-country" },
-	{ id: "checkride", title: "Checkride prep" },
-];
-
+export const COURSE_ID = "private-pilot";
 export const COURSE_TITLE = "Private pilot ground school";
 
 type Json = Record<string, unknown>;
+
+interface AcsRow {
+	index: number;
+	task: string;
+	taskName: string;
+	code: string;
+	type: "K" | "R";
+	text: string;
+}
+
+const OUTLINE_KEYS = ["lesson", "id", "stage", "group", "title", "codes", "minutes", "milestone", "regs"];
 
 function readJson(file: string): unknown {
 	try {
@@ -57,92 +84,176 @@ const arr = (v: unknown, what: string): unknown[] => {
 	return v;
 };
 
-/** "PA.I.A.K1; PA.I.A.R2" -> ["PA.I.A.K1", "PA.I.A.R2"]. Commas stay: some codes hold them ("PA.I.F.K3, K2e"). */
-export function splitAcs(raw: unknown): string[] {
-	if (typeof raw !== "string") return [];
-	return raw
-		.split(";")
-		.map((code) => code.trim())
-		.filter(Boolean);
+/** The ACS elements by code, with their place in ACS order. */
+export function readAcs(value: unknown): Map<string, AcsRow> {
+	const rows = new Map<string, AcsRow>();
+	arr(value, "The ACS data").forEach((raw, index) => {
+		if (!isRecord(raw)) throw new Error(`ACS entry ${index} is not an object`);
+		const code = str(raw.code, `The code of ACS entry ${index}`);
+		const task = code.split(".").slice(0, 3).join(".");
+		const expected = `${code.split(".")[0]}.${str(raw.area, `The area of ${code}`)}.${str(raw.task, `The task of ${code}`)}`;
+		if (task !== expected) throw new Error(`The ACS entry ${code} says area ${String(raw.area)}, task ${String(raw.task)}`);
+		if (raw.type !== "K" && raw.type !== "R") throw new Error(`The ACS entry ${code} has type ${String(raw.type)}, not K or R`);
+		if (rows.has(code)) throw new Error(`The ACS data lists ${code} twice`);
+		rows.set(code, { index, task, taskName: str(raw.taskName, `The task name of ${code}`), code, type: raw.type, text: str(raw.text, `The text of ${code}`) });
+	});
+	return rows;
 }
 
-/** Build the course from a Groundwork folder. Throws, naming the problem, when the data is incomplete. */
-export function buildCourse(groundworkDir: string): CourseFile {
-	const order = arr(readJson(path.join(groundworkDir, "scripts", "courses", "private-pilot.subjects.json")), "private-pilot.subjects.json").map((s, i) =>
-		str(isRecord(s) ? s.id : undefined, `private-pilot.subjects.json entry ${i} id`),
-	);
-	const index = readJson(path.join(groundworkDir, "src", "content", "course", "index.json"));
-	if (!isRecord(index)) throw new Error("index.json is not an object");
-	const indexSubjects = arr(index.subjects, "index.json subjects").filter(isRecord);
-	const byId = new Map(indexSubjects.map((s) => [str(s.id, "a subject id in index.json"), s]));
-	for (const id of byId.keys()) if (!order.includes(id)) throw new Error(`The subject ${id} is in index.json but not in private-pilot.subjects.json`);
+/** regs.json: { source, headings: { cite: heading } }. */
+export function readRegHeadings(value: unknown): Map<string, string> {
+	if (!isRecord(value) || !isRecord(value.headings)) throw new Error("regs.json must be { source, headings: { cite: heading } }");
+	for (const key of Object.keys(value)) if (key !== "source" && key !== "headings") throw new Error(`regs.json has a field it does not use: ${key}`);
+	return new Map(Object.entries(value.headings).map(([cite, heading]) => [cite, str(heading, `The heading of ${cite} in regs.json`)]));
+}
 
-	const stages: CourseStage[] = STAGES.map((s) => ({ id: s.id, title: s.title, subjects: [] }));
-	for (const subjectId of order) {
-		const subject = byId.get(subjectId);
-		if (!subject) throw new Error(`The subject ${subjectId} is in private-pilot.subjects.json but not in index.json`);
-		const design = readJson(path.join(groundworkDir, "scripts", "courses", "legs", `${subjectId}.json`));
-		const labels = isRecord(design) && isRecord(design.labels) ? design.labels : {};
-		const data = readJson(path.join(groundworkDir, "src", "content", "course", "subjects", `${subjectId}.json`));
-		const acsByPoint = new Map<string, string[]>();
-		for (const p of isRecord(data) ? arr(data.points, `subjects/${subjectId}.json points`) : []) {
-			if (isRecord(p) && typeof p.id === "string") acsByPoint.set(p.id, splitAcs(p.acs));
-		}
+/** "14 CFR 61.87(b), (c)" -> { section: "14 CFR 61.87", paragraphs: ["(b)", "(c)"] }. No paragraphs: the whole section. */
+export function splitRegCite(raw: string): { section: string; paragraphs: string[] } {
+	const m = /^(\d{1,2} CFR \d{1,3}\.\d{1,4}[a-z]?)\s*(.*)$/.exec(raw.trim());
+	if (!m) throw new Error(`"${raw}" is not a citation like 14 CFR 61.87(b), (c)`);
+	const rest = (m[2] ?? "").trim();
+	const paragraphs = rest ? rest.split(",").map((p) => p.trim()) : [];
+	for (const p of paragraphs) if (!/^(\([a-z0-9]{1,4}\))+$/.test(p)) throw new Error(`"${raw}" has a paragraph that is not like (b): ${p}`);
+	return { section: m[1] ?? "", paragraphs };
+}
 
-		const title = str(subject.title, `the title of ${subjectId}`);
-		for (const rawLeg of arr(subject.legs, `the Legs of ${subjectId}`)) {
-			if (!isRecord(rawLeg)) throw new Error(`A Leg of ${subjectId} is not an object`);
-			const legId = str(rawLeg.id, `a Leg id in ${subjectId}`);
-			const stage = stages.find((s) => s.id === rawLeg.when);
-			if (!stage) throw new Error(`The Leg ${legId} has no known stage (when: ${String(rawLeg.when)})`);
-			const keyPoints: string[] = [];
-			const acs: string[] = [];
-			for (const pointId of arr(rawLeg.points, `the Points of ${legId}`)) {
-				const label = typeof pointId === "string" ? labels[pointId] : undefined;
-				keyPoints.push(str(label, `The label of Point ${String(pointId)} (Leg ${legId})`));
-				for (const code of acsByPoint.get(String(pointId)) ?? []) if (!acs.includes(code)) acs.push(code);
-			}
-			const leg: CourseLeg = { id: legId, title: str(rawLeg.title, `the title of ${legId}`), outcome: str(rawLeg.outcome, `the outcome of ${legId}`), acs, keyPoints };
-			let entry = stage.subjects.find((s) => s.id === subjectId);
-			if (!entry) {
-				entry = { id: subjectId, title, legs: [] };
-				stage.subjects.push(entry);
-			}
-			entry.legs.push(leg);
-		}
+function acsScope(codes: readonly string[], acs: Map<string, AcsRow>, where: string): AcsTask[] {
+	const picked = new Map<string, { row: AcsRow; context: boolean }>();
+	for (const code of codes) {
+		const row = acs.get(code);
+		if (!row) throw new Error(`${where}: the code ${code} is not in the ACS data`);
+		if (picked.has(code)) throw new Error(`${where} lists ${code} twice`);
+		picked.set(code, { row, context: false });
 	}
+	for (const code of codes) {
+		const parent = parentCode(code);
+		if (!parent || picked.has(parent)) continue;
+		const row = acs.get(parent);
+		if (!row) throw new Error(`${where}: the parent line ${parent} of ${code} is not in the ACS data`);
+		picked.set(parent, { row, context: true });
+	}
+	const tasks: AcsTask[] = [];
+	// Tasks in the order the lesson first names them; elements in ACS order.
+	for (const code of codes) {
+		const row = acs.get(code);
+		if (!row || tasks.some((t) => t.task === row.task)) continue;
+		const elements: AcsElement[] = [...picked.values()]
+			.filter((p) => p.row.task === row.task)
+			.sort((a, b) => a.row.index - b.row.index)
+			.map(({ row: r, context }) => ({ code: r.code, type: r.type, text: r.text, sub: parentCode(r.code) !== null, ...(context ? { context: true as const } : {}) }));
+		tasks.push({ task: row.task, name: row.taskName, elements });
+	}
+	return tasks;
+}
 
-	const course = {
-		format: COURSE_FORMAT,
-		version: COURSE_VERSION,
-		id: str(index.id, "index.json id"),
-		title: COURSE_TITLE,
-		stages: stages.filter((s) => s.subjects.length > 0),
-	};
-	const checked = parseCourseFile(course);
+function regScope(raw: unknown, headings: Map<string, string>, where: string): RegSection[] {
+	const sections: RegSection[] = [];
+	for (const item of arr(raw, `${where} regs`)) {
+		const { section, paragraphs } = splitRegCite(str(item, `${where}: a regs entry`));
+		const heading = headings.get(section);
+		if (!heading) throw new Error(`${where}: regs.json has no heading for ${section}`);
+		if (sections.some((s) => s.cite === section)) throw new Error(`${where} names ${section} twice`);
+		sections.push({
+			cite: section,
+			heading,
+			paragraphs: paragraphs.map((p) => {
+				const cite = `${section}${p}`;
+				const h = headings.get(cite);
+				if (!h) throw new Error(`${where}: regs.json has no heading for ${cite}`);
+				return { cite, heading: h };
+			}),
+		});
+	}
+	return sections;
+}
+
+/** Build the course from the three inputs (already parsed). Throws, naming the problem, when the data is incomplete. */
+export function buildCourse(outline: unknown, acsData: unknown, regsData: unknown): CourseFile {
+	const acs = readAcs(acsData);
+	const headings = readRegHeadings(regsData);
+	const stages: CourseStage[] = [];
+	const closedGroups = new Set<string>();
+	let current: { stage: string; group: string } | null = null;
+	arr(outline, "The outline").forEach((raw, i) => {
+		if (!isRecord(raw)) throw new Error(`Outline entry ${i} is not an object`);
+		const where = `Lesson ${String(raw.lesson ?? i + 1)}`;
+		for (const key of Object.keys(raw)) if (!OUTLINE_KEYS.includes(key)) throw new Error(`${where} has a field the converter does not know: ${key}`);
+		if (raw.lesson !== i + 1) throw new Error(`Outline entry ${i} is lesson ${String(raw.lesson)}; the lessons must be numbered 1, 2, 3... in order`);
+		const stageTitle = str(raw.stage, `${where}: the stage`);
+		const groupTitle = str(raw.group, `${where}: the group`);
+		const minutes = arr(raw.minutes, `${where}: minutes`);
+		if (minutes.length !== 2 || !minutes.every((m) => typeof m === "number")) throw new Error(`${where}: minutes must be [shortest, longest]`);
+		const lesson: CourseLesson = {
+			id: raw.id === undefined ? `l${String(i + 1).padStart(2, "0")}` : str(raw.id, `${where}: the id`),
+			number: i + 1,
+			title: str(raw.title, `${where}: the title`),
+			// Checked as whole minutes, shortest first, by the course file check below.
+			minutes: [Number(minutes[0]), Number(minutes[1])],
+			acs: acsScope(arr(raw.codes ?? [], `${where} codes`).map((c) => str(c, `${where}: a code`)), acs, where),
+			regs: raw.regs === undefined ? [] : regScope(raw.regs, headings, where),
+		};
+		if (lesson.acs.length === 0 && lesson.regs.length === 0) throw new Error(`${where} has no scope: no ACS codes and no regs`);
+
+		const key = `${stageTitle}\n${groupTitle}`;
+		if (!current || current.stage !== stageTitle || current.group !== groupTitle) {
+			if (current) closedGroups.add(`${current.stage}\n${current.group}`);
+			if (closedGroups.has(key)) throw new Error(`${where}: the group "${groupTitle}" (${stageTitle}) comes back after other lessons; keep each group's lessons together`);
+			let stage = stages.at(-1);
+			if (!stage || stage.title !== stageTitle) {
+				if (stages.some((s) => s.title === stageTitle)) throw new Error(`${where}: the stage "${stageTitle}" comes back after other stages; keep each stage's lessons together`);
+				stage = { title: stageTitle, groups: [] };
+				stages.push(stage);
+			}
+			stage.groups.push({ title: groupTitle, lessons: [] });
+			current = { stage: stageTitle, group: groupTitle };
+		}
+		stages.at(-1)?.groups.at(-1)?.lessons.push(lesson);
+	});
+
+	const checked = parseCourseFile({ format: COURSE_FORMAT, version: COURSE_VERSION, id: COURSE_ID, title: COURSE_TITLE, stages });
 	if (!checked.ok) throw new Error(`The built course does not pass the course file check: ${checked.error}`);
 	return checked.course;
 }
 
+export interface BuildReport {
+	bytes: number;
+	stages: number;
+	groups: number;
+	lessons: number;
+	acsElements: number;
+	contextLines: number;
+	regParagraphs: number;
+	/** The lesson with the longest first message, its length in characters, and its chat address in bytes. */
+	longest: { lesson: number; chars: number; urlBytes: number };
+}
+
 /** Build and write the file. Returns its size and counts. */
-export function writeCourseFile(groundworkDir: string, outFile: string): { bytes: number; stages: number; subjects: number; legs: number } {
-	const course = buildCourse(groundworkDir);
+export function writeCourseFile(outlineFile: string, acsFile: string, regsFile: string, outFile: string): BuildReport {
+	const course = buildCourse(readJson(outlineFile), readJson(acsFile), readJson(regsFile));
 	const json = `${JSON.stringify(course, null, 2)}\n`;
 	fs.mkdirSync(path.dirname(outFile), { recursive: true });
 	fs.writeFileSync(outFile, json);
-	return { bytes: Buffer.byteLength(json), ...courseCounts(course) };
+	let longest = { lesson: 0, chars: 0, urlBytes: 0 };
+	for (const found of allLessons(course)) {
+		const message = firstMessage(found);
+		if (message.length > longest.chars) longest = { lesson: found.lesson.number, chars: message.length, urlBytes: startUrlBytes(message) };
+	}
+	return { bytes: Buffer.byteLength(json), ...courseCounts(course), longest };
 }
 
 const invokedDirectly = process.argv[1] !== undefined && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (invokedDirectly) {
-	const [groundwork, out] = process.argv.slice(2);
-	if (!groundwork || !out) {
-		console.error("Usage: node frontdoor/course/build-course-file.ts <groundwork folder> <output file>");
+	const [outline, acsFile, regs, out] = process.argv.slice(2);
+	if (!outline || !acsFile || !regs || !out) {
+		console.error("Usage: node frontdoor/course/build-course-file.ts <outline.json> <acs.json> <regs.json> <out.json>");
 		process.exit(2);
 	}
 	try {
-		const r = writeCourseFile(path.resolve(groundwork), path.resolve(out));
-		console.log(`Wrote ${out}: ${r.bytes} bytes, ${r.stages} stages, ${r.subjects} subjects, ${r.legs} Legs.`);
+		const r = writeCourseFile(path.resolve(outline), path.resolve(acsFile), path.resolve(regs), path.resolve(out));
+		console.log(
+			`Wrote ${out}: ${r.bytes} bytes, ${r.stages} stages, ${r.groups} groups, ${r.lessons} lessons, ${r.acsElements} ACS elements (plus ${r.contextLines} parent lines for context), ${r.regParagraphs} regulation paragraphs.`,
+		);
+		console.log(`Longest first message: lesson ${r.longest.lesson}, ${r.longest.chars} characters, ${r.longest.urlBytes} bytes in the chat address.`);
 	} catch (error) {
 		console.error((error as Error).message);
 		process.exit(1);

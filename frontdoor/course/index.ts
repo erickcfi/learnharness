@@ -1,6 +1,7 @@
 /**
- * The guided course page (master, 2026-11-11). Puts the pieces together for
- * the front door: the /course routes (endpoint.ts), and the runtime the
+ * The guided course page (master, 2026-11-11; lesson outline 2026-11-17).
+ * Puts the pieces together for the front door: the /course routes
+ * (endpoint.ts), and the runtime the
  * Next.js page reads (registry.ts). wiring/front-door.ts calls createCourse()
  * once at start and close() at shutdown. See README.md in this folder.
  */
@@ -12,7 +13,7 @@ import type { AccountStore } from "../tenants/accounts.ts";
 import { databaseStartBlock, noStartBlock, type StartBlockCheck } from "./blocks.ts";
 import { type CourseEndpoint, createCourseEndpoint, type TenantRequest } from "./endpoint.ts";
 import { type LiveChats, tenantLiveChats } from "./live-chats.ts";
-import { type LegStartMarks, legStartMarks } from "./marks.ts";
+import { type LessonStartMarks, lessonStartMarks } from "./marks.ts";
 import { getCourseRuntime, registerCourseRuntime, type CourseRuntime } from "./registry.ts";
 import { type CourseSource, libraryCourseSource } from "./source.ts";
 import { courseView } from "./view.ts";
@@ -29,7 +30,7 @@ export interface CourseOptions {
 	trustForwardedHeaders: boolean;
 	/** Overrides, for tests. */
 	source?: CourseSource;
-	marks?: LegStartMarks;
+	marks?: LessonStartMarks;
 	startBlock?: StartBlockCheck;
 	now?: () => number;
 	log?: (line: string) => void;
@@ -47,7 +48,7 @@ export interface Course {
  * Continue links the newest start.
  */
 export function courseRuntime(
-	options: Pick<CourseOptions, "accounts" | "sessionSecret" | "now"> & { source: CourseSource; marks: LegStartMarks; startBlock: StartBlockCheck; liveChats?: LiveChats },
+	options: Pick<CourseOptions, "accounts" | "sessionSecret" | "now"> & { source: CourseSource; marks: LessonStartMarks; startBlock: StartBlockCheck; liveChats?: LiveChats },
 ): CourseRuntime {
 	const now = () => (options.now ? options.now() : Date.now());
 	return {
@@ -59,7 +60,7 @@ export function courseRuntime(
 			if (!account.ageConfirmedAt) return { status: "confirm-age" };
 			const course = await options.source.load();
 			if (!course) return { status: "coming-soon" };
-			const [starts, block] = await Promise.all([options.marks.startsByLeg(session.tenantId), options.startBlock(session.tenantId)]);
+			const [starts, block] = await Promise.all([options.marks.startsByLesson(session.tenantId), options.startBlock(session.tenantId)]);
 			// The tenant's chat list is read once per page, and only when there is a start to check.
 			const live = starts.size > 0 && options.liveChats ? await options.liveChats(session.tenantId) : null;
 			return { status: "ready", course: courseView(course, starts, block, live) };
@@ -70,7 +71,7 @@ export function courseRuntime(
 export function createCourse(options: CourseOptions): Course {
 	const log = options.log;
 	const source = options.source ?? libraryCourseSource(options.libraryDir, log);
-	const marks = options.marks ?? legStartMarks(options.db, log);
+	const marks = options.marks ?? lessonStartMarks(options.db, log);
 	const startBlock = options.startBlock ?? (options.db ? databaseStartBlock(options.db, { billing: options.billing, now: options.now, log }) : noStartBlock);
 	const endpoint = createCourseEndpoint({
 		frontDoorApp: options.frontDoorApp,
@@ -94,6 +95,6 @@ export function createCourse(options: CourseOptions): Course {
 	};
 }
 
-export { COURSE_PATH, COURSE_START_PATH, chatStartPath } from "./endpoint.ts";
+export { COURSE_PATH, COURSE_START_PATH, chatStartPath, chatTitle } from "./endpoint.ts";
 export { firstMessage } from "./first-message.ts";
 export type { CoursePageState, CourseView } from "./view.ts";

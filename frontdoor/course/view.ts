@@ -1,39 +1,41 @@
 /**
- * What the /course page shows (master, 2026-11-11): stages, then subjects,
- * then Legs, each with its title and outcome, and a "Started" mark with the
- * chat to continue. Plain data, so course-screen.tsx stays a pure render.
+ * What the /course page shows (docs/decisions/2026-11-17-course-outline.md):
+ * each stage, its groups, and their numbered lessons with title and minutes,
+ * plus a "Started" mark with the chat to continue. Plain data, so
+ * course-screen.tsx stays a pure render. The lesson's scope (ACS elements,
+ * regulations) is for the tutor's first message only, so it is not here.
  */
 import type { StartBlock } from "./blocks.ts";
-import type { CourseFile } from "./file.ts";
+import { allLessons, type CourseFile } from "./file.ts";
 import type { StartMark } from "./marks.ts";
 
-export interface LegView {
+export interface LessonView {
 	/** Sent back by the Start form only; never shown. */
 	id: string;
+	number: number;
 	title: string;
-	outcome: string;
-	keyPointCount: number;
+	minutes: [number, number];
 	/** The newest start: the "Started" mark. */
 	started: StartMark | null;
-	/** The chat "Continue" opens, or null: then the Leg offers "Start lesson" again. */
+	/** The chat "Continue" opens, or null: then the lesson offers "Start lesson" again. */
 	continueChatId: string | null;
 }
 
-export interface SubjectView {
-	id: string;
+export interface GroupView {
 	title: string;
-	legs: LegView[];
-	startedCount: number;
+	lessons: LessonView[];
 }
 
 export interface StageView {
-	id: string;
+	/** 1, 2, 3. */
+	number: number;
 	title: string;
-	subjects: SubjectView[];
+	groups: GroupView[];
 }
 
 export interface CourseView {
 	title: string;
+	lessonCount: number;
 	stages: StageView[];
 	/** Why a lesson cannot start now, or null. */
 	block: StartBlock | null;
@@ -51,10 +53,10 @@ export function courseRedirect(state: CoursePageState): string | null {
 }
 
 /**
- * The chat "Continue" opens for one Leg. `starts` is newest first. A chat the
- * student deleted in the tutor is skipped for the newest earlier one that
- * still exists; none left gives null. `liveChats` null means the tenant's
- * server did not answer: then the newest start, as before.
+ * The chat "Continue" opens for one lesson. `starts` is newest first. A chat
+ * the student deleted in the tutor is skipped for the newest earlier one
+ * that still exists; none left gives null. `liveChats` null means the
+ * tenant's server did not answer: then the newest start, as before.
  */
 export function chatToContinue(starts: readonly StartMark[], liveChats: ReadonlySet<string> | null): string | null {
 	if (!liveChats) return starts[0]?.chatId ?? null;
@@ -64,24 +66,25 @@ export function chatToContinue(starts: readonly StartMark[], liveChats: Readonly
 export function courseView(course: CourseFile, starts: ReadonlyMap<string, readonly StartMark[]>, block: StartBlock | null, liveChats: ReadonlySet<string> | null = null): CourseView {
 	return {
 		title: course.title,
+		lessonCount: allLessons(course).length,
 		block,
-		stages: course.stages.map((stage) => ({
-			id: stage.id,
+		stages: course.stages.map((stage, i) => ({
+			number: i + 1,
 			title: stage.title,
-			subjects: stage.subjects.map((subject) => {
-				const legs = subject.legs.map((leg) => {
-					const legStarts = starts.get(leg.id) ?? [];
+			groups: stage.groups.map((group) => ({
+				title: group.title,
+				lessons: group.lessons.map((lesson) => {
+					const lessonStarts = starts.get(lesson.id) ?? [];
 					return {
-						id: leg.id,
-						title: leg.title,
-						outcome: leg.outcome,
-						keyPointCount: leg.keyPoints.length,
-						started: legStarts[0] ?? null,
-						continueChatId: chatToContinue(legStarts, liveChats),
+						id: lesson.id,
+						number: lesson.number,
+						title: lesson.title,
+						minutes: lesson.minutes,
+						started: lessonStarts[0] ?? null,
+						continueChatId: chatToContinue(lessonStarts, liveChats),
 					};
-				});
-				return { id: subject.id, title: subject.title, legs, startedCount: legs.filter((l) => l.started).length };
-			}),
+				}),
+			})),
 		})),
 	};
 }

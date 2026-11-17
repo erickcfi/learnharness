@@ -1,21 +1,22 @@
 /**
- * The "Started" marks on /course (master, 2026-11-11), over
- * frontdoor/db/course.ts. The page must work before the migration that
- * makes course_leg_starts is applied: then no marks are shown, nothing is
- * stored, and one line is logged (once per process). Any other database
- * trouble is logged too and never stops the page or a lesson start.
+ * The "Started" marks on /course, over frontdoor/db/course.ts. Each start
+ * is stored with the lesson's id from the course file (in the table's
+ * leg_id column, see db/course.ts). The page must work without the table
+ * course_leg_starts: then no marks are shown, nothing is stored, and one
+ * line is logged (once per process). Any other database trouble is logged
+ * too and never stops the page or a lesson start.
  */
-import { type Db, listLegStarts, recordLegStart } from "../db/index.ts";
+import { type Db, listLessonStarts, recordLessonStart } from "../db/index.ts";
 
 export interface StartMark {
 	chatId: string;
 	startedAt: Date;
 }
 
-export interface LegStartMarks {
-	record(input: { tenantId: string; legId: string; chatId: string; at?: Date }): Promise<void>;
-	/** Every start per Leg id, newest first. Empty with no database or no table. */
-	startsByLeg(tenantId: string): Promise<Map<string, StartMark[]>>;
+export interface LessonStartMarks {
+	record(input: { tenantId: string; lessonId: string; chatId: string; at?: Date }): Promise<void>;
+	/** Every start per lesson id, newest first. Empty with no database or no table. */
+	startsByLesson(tenantId: string): Promise<Map<string, StartMark[]>>;
 }
 
 /** Postgres's "undefined_table". */
@@ -28,7 +29,7 @@ const codeOf = (error: unknown): string => {
 
 export const MISSING_TABLE_LINE = "course: the course_leg_starts table is missing, so Started marks are off until its migration is applied";
 
-export function legStartMarks(db: Db | null, log?: (line: string) => void): LegStartMarks {
+export function lessonStartMarks(db: Db | null, log?: (line: string) => void): LessonStartMarks {
 	let warned = false;
 	const trouble = (what: string, error: unknown) => {
 		const code = codeOf(error);
@@ -44,23 +45,23 @@ export function legStartMarks(db: Db | null, log?: (line: string) => void): LegS
 		async record(input) {
 			if (!db) return;
 			try {
-				await recordLegStart(db, input);
+				await recordLessonStart(db, input);
 			} catch (error) {
-				trouble("record a Leg start", error);
+				trouble("record a lesson start", error);
 			}
 		},
-		async startsByLeg(tenantId) {
+		async startsByLesson(tenantId) {
 			const out = new Map<string, StartMark[]>();
 			if (!db) return out;
 			try {
-				// listLegStarts is newest first, so each Leg's list is too.
-				for (const row of await listLegStarts(db, tenantId)) {
-					const starts = out.get(row.legId) ?? [];
+				// listLessonStarts is newest first, so each lesson's list is too.
+				for (const row of await listLessonStarts(db, tenantId)) {
+					const starts = out.get(row.lessonId) ?? [];
 					starts.push({ chatId: row.chatId, startedAt: row.startedAt });
-					out.set(row.legId, starts);
+					out.set(row.lessonId, starts);
 				}
 			} catch (error) {
-				trouble("read Leg starts", error);
+				trouble("read lesson starts", error);
 				out.clear();
 			}
 			return out;

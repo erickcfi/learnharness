@@ -1,11 +1,12 @@
 /**
- * Starting a course lesson through the gateway (master, 2026-11-11):
+ * Starting a course lesson through the gateway (master, 2026-11-11; lesson
+ * outline 2026-11-17):
  * /course needs the front door's login like a tutor page; "Start lesson"
  * opens a new chat on the student's own tutor server with upstream's own
  * POST /api/chats, records a Started mark, and lands on /chat/<id>?prompt=
- * with the Leg's first message. The marks work with the table and without
- * it (migration not applied yet). "Continue" skips chats the student
- * deleted in the tutor. Invented course data only.
+ * with the lesson's first message. The marks work with the table and
+ * without it. "Continue" skips chats the student deleted in the tutor.
+ * Invented course data only.
  */
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
@@ -15,11 +16,11 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { after, before, beforeEach, describe, it } from "node:test";
 import { databaseStartBlock } from "../frontdoor/course/blocks.ts";
-import { type Course, createCourse } from "../frontdoor/course/index.ts";
-import { COURSE_FILE_NAME, findLeg } from "../frontdoor/course/file.ts";
+import { chatStartPath, chatTitle, type Course, createCourse } from "../frontdoor/course/index.ts";
+import { COURSE_FILE_NAME, findLesson } from "../frontdoor/course/file.ts";
 import { firstMessage } from "../frontdoor/course/first-message.ts";
 import { tenantLiveChats } from "../frontdoor/course/live-chats.ts";
-import { legStartMarks, MISSING_TABLE_LINE } from "../frontdoor/course/marks.ts";
+import { lessonStartMarks, MISSING_TABLE_LINE } from "../frontdoor/course/marks.ts";
 import * as dbm from "../frontdoor/db/index.ts";
 import { createTestDb, type TestDb } from "../frontdoor/db/testing.ts";
 import type { ClerkGateway } from "../frontdoor/gateway/auth.ts";
@@ -146,11 +147,11 @@ function putCourseFile(): void {
 }
 
 const send = (p: string, init: RequestInit = {}) => fetch(`${base}${p}`, { redirect: "manual", ...init });
-const startLeg = (leg: string, headers: Record<string, string> = {}) =>
+const startLesson = (lesson: string, headers: Record<string, string> = {}) =>
 	send("/course/start", {
 		method: "POST",
 		headers: { Cookie: cookie, Origin: base, "Content-Type": "application/x-www-form-urlencoded", ...headers },
-		body: new URLSearchParams({ leg }).toString(),
+		body: new URLSearchParams({ lesson }).toString(),
 	});
 const chatCreates = () => tenantHits.filter((h) => h.method === "POST" && h.url === "/api/chats");
 
@@ -159,7 +160,7 @@ describe("/course behind the front door's login", () => {
 		const res = await send("/course");
 		assert.equal(res.status, 302);
 		assert.equal(res.headers.get("location"), "/account/sign-in?next=%2Fcourse");
-		const post = await send("/course/start", { method: "POST", body: "leg=folding-the-dart", headers: { "Content-Type": "application/x-www-form-urlencoded" } });
+		const post = await send("/course/start", { method: "POST", body: "lesson=l01", headers: { "Content-Type": "application/x-www-form-urlencoded" } });
 		assert.equal(post.status, 401);
 		assert.deepEqual(tenantHits, []);
 		assert.deepEqual(pageHits, []);
@@ -176,7 +177,7 @@ describe("/course behind the front door's login", () => {
 	});
 
 	it("with no course file, a start goes back to /course (which says coming soon)", async () => {
-		const res = await startLeg("folding-the-dart");
+		const res = await startLesson("l01");
 		assert.equal(res.status, 303);
 		assert.equal(res.headers.get("location"), "/course");
 		assert.deepEqual(chatCreates(), []);
@@ -185,72 +186,76 @@ describe("/course behind the front door's login", () => {
 });
 
 describe("starting a lesson", () => {
-	it("opens a new chat titled with the Leg, records the start, and lands on the chat with the first message", async () => {
+	it("opens a new chat titled with the lesson, records the start under the lesson id, and lands on the chat with the first message", async () => {
 		putCourseFile();
-		const res = await startLeg("folding-the-dart");
+		const res = await startLesson("l01");
 		assert.equal(res.status, 303);
 		const location = new URL(res.headers.get("location") ?? "", "http://x");
 		assert.equal(location.pathname, "/chat/chat_1");
-		const leg = findLeg(sampleCourse(), "folding-the-dart")!.leg;
-		assert.equal(location.searchParams.get("prompt"), firstMessage(leg));
-		assert.ok(location.searchParams.get("prompt")!.startsWith("I am a student pilot working toward the private pilot certificate."));
+		const found = findLesson(sampleCourse(), "l01")!;
+		assert.equal(location.searchParams.get("prompt"), firstMessage(found));
+		assert.ok(location.searchParams.get("prompt")!.startsWith("I am a student pilot working toward the FAA private pilot certificate. I would like to work on this lesson.\n\nLesson 1: Kite shapes and line\nStage 1: Before the first flight\n\n"));
+		assert.equal(res.headers.get("location"), chatStartPath("chat_1", firstMessage(found)));
 
 		const creates = chatCreates();
 		assert.equal(creates.length, 1);
-		assert.deepEqual(JSON.parse(creates[0]!.body), { title: "Folding the dart" });
+		assert.deepEqual(JSON.parse(creates[0]!.body), { title: "Lesson 1: Kite shapes and line" });
+		assert.equal(chatTitle(found.lesson), "Lesson 1: Kite shapes and line");
 		assert.match(String(creates[0]!.headers["content-type"]), /application\/json/);
 
-		const starts = await dbm.listLegStarts(t.db, tenantId);
+		const starts = await dbm.listLessonStarts(t.db, tenantId);
 		assert.deepEqual(
-			starts.map((s) => [s.legId, s.chatId, s.startedAt.getTime()]),
-			[["folding-the-dart", "chat_1", NOW]],
+			starts.map((s) => [s.lessonId, s.chatId, s.startedAt.getTime()]),
+			[["l01", "chat_1", NOW]],
 		);
+		const [row] = await t.db.query("select leg_id from course_leg_starts where chat_id = 'chat_1'");
+		assert.equal(row?.leg_id, "l01", "the table's leg_id column holds the lesson id");
 		const page = await course.runtime.page(cookie);
 		assert.equal(page.status, "ready");
 		if (page.status !== "ready") return;
-		const legs = page.course.stages.flatMap((s) => s.subjects.flatMap((sub) => sub.legs));
-		assert.deepEqual(legs.find((l) => l.id === "folding-the-dart")?.started?.chatId, "chat_1");
-		assert.equal(legs.find((l) => l.id === "line-tension")?.started, null);
+		const lessons = page.course.stages.flatMap((s) => s.groups.flatMap((g) => g.lessons));
+		assert.deepEqual(lessons.find((l) => l.id === "l01")?.started?.chatId, "chat_1");
+		assert.equal(lessons.find((l) => l.id === "l05")?.started, null);
 	});
 
-	it("a second start of the same Leg opens a new chat, and Continue points at the newest", async () => {
+	it("a second start of the same lesson opens a new chat, and Continue points at the newest", async () => {
 		clock = NOW + 60_000;
-		const res = await startLeg("folding-the-dart");
+		const res = await startLesson("l01");
 		assert.equal(new URL(res.headers.get("location") ?? "", "http://x").pathname, "/chat/chat_2");
 		assert.deepEqual(
-			(await dbm.listLegStarts(t.db, tenantId)).map((s) => s.chatId),
+			(await dbm.listLessonStarts(t.db, tenantId)).map((s) => s.chatId),
 			["chat_2", "chat_1"],
 		);
 		const page = await course.runtime.page(cookie);
 		if (page.status !== "ready") throw new Error(page.status);
-		const leg = page.course.stages[0]!.subjects[0]!.legs[0]!;
-		assert.equal(leg.started?.chatId, "chat_2");
-		assert.equal(page.course.stages[0]!.subjects[0]!.startedCount, 1);
+		const lesson = page.course.stages[0]!.groups[0]!.lessons[0]!;
+		assert.equal(lesson.started?.chatId, "chat_2");
+		assert.equal(lesson.continueChatId, "chat_2");
 	});
 
 	it("refuses a post from another site", async () => {
-		const res = await startLeg("folding-the-dart", { Origin: "https://elsewhere.example" });
+		const res = await startLesson("l01", { Origin: "https://elsewhere.example" });
 		assert.equal(res.status, 403);
 		assert.deepEqual(chatCreates(), []);
 	});
 
-	it("goes back to /course for a Leg the course does not have, or when the tutor cannot open a chat", async () => {
-		const missing = await startLeg("not-a-leg");
-		assert.equal(missing.headers.get("location"), "/course?error=no-leg");
+	it("goes back to /course for a lesson the course does not have, or when the tutor cannot open a chat", async () => {
+		const missing = await startLesson("l99");
+		assert.equal(missing.headers.get("location"), "/course?error=no-lesson");
 		assert.deepEqual(chatCreates(), []);
 
 		tenantFails = true;
-		const before = (await dbm.listLegStarts(t.db, tenantId)).length;
-		const failed = await startLeg("line-tension");
+		const before = (await dbm.listLessonStarts(t.db, tenantId)).length;
+		const failed = await startLesson("l05");
 		assert.equal(failed.status, 303);
 		assert.equal(failed.headers.get("location"), "/course?error=starting");
-		assert.equal((await dbm.listLegStarts(t.db, tenantId)).length, before, "no mark without a chat");
+		assert.equal((await dbm.listLessonStarts(t.db, tenantId)).length, before, "no mark without a chat");
 		assert.ok(logs.some((l) => /could not open a chat \(status 500\)/.test(l)));
 	});
 
 	it("opens no chat while the student is paused; /course shows why instead of Start", async () => {
 		await dbm.pauseTenant(t.db, { tenantId, reason: "owner" });
-		const res = await startLeg("line-tension");
+		const res = await startLesson("l05");
 		assert.equal(res.status, 303);
 		assert.equal(res.headers.get("location"), "/course");
 		assert.deepEqual(chatCreates(), []);
@@ -279,45 +284,45 @@ describe("starting a lesson", () => {
 });
 
 describe("Continue after the student deletes a chat in the tutor", () => {
-	// From the tests above: "Folding the dart" was started twice, chat_2 (newest) then chat_1.
-	async function foldingTheDart() {
+	// From the tests above: lesson l01 was started twice, chat_2 (newest) then chat_1.
+	async function firstLesson() {
 		const page = await course.runtime.page(cookie);
 		if (page.status !== "ready") throw new Error(page.status);
-		const subject = page.course.stages[0]!.subjects[0]!;
-		return { leg: subject.legs.find((l) => l.id === "folding-the-dart")!, startedCount: subject.startedCount };
+		const lessons = page.course.stages.flatMap((s) => s.groups.flatMap((g) => g.lessons));
+		return { lesson: lessons.find((l) => l.id === "l01")!, startedCount: lessons.filter((l) => l.started).length };
 	}
 	const chatListReads = () => tenantHits.filter((h) => h.method === "GET" && h.url === "/api/chats");
 
 	it("links Continue to the newest chat while it still exists", async () => {
-		const { leg } = await foldingTheDart();
-		assert.equal(leg.started?.chatId, "chat_2");
-		assert.equal(leg.continueChatId, "chat_2");
+		const { lesson } = await firstLesson();
+		assert.equal(lesson.started?.chatId, "chat_2");
+		assert.equal(lesson.continueChatId, "chat_2");
 		assert.equal(chatListReads().length, 1, "one read of the chat list per page");
 		assert.match(String(chatListReads()[0]!.headers.accept), /application\/json/);
 	});
 
-	it("falls back to the newest earlier chat for the Leg when the newest was deleted", async () => {
+	it("falls back to the newest earlier chat for the lesson when the newest was deleted", async () => {
 		liveChats.delete("chat_2");
-		const { leg, startedCount } = await foldingTheDart();
-		assert.equal(leg.continueChatId, "chat_1");
-		assert.equal(leg.started?.chatId, "chat_2", "the Started mark stays");
+		const { lesson, startedCount } = await firstLesson();
+		assert.equal(lesson.continueChatId, "chat_1");
+		assert.equal(lesson.started?.chatId, "chat_2", "the Started mark stays");
 		assert.equal(startedCount, 1);
 	});
 
-	it("shows Start lesson again, and keeps Started, when every chat for the Leg was deleted", async () => {
+	it("shows Start lesson again, and keeps Started, when every chat for the lesson was deleted", async () => {
 		liveChats.delete("chat_1");
-		const { leg, startedCount } = await foldingTheDart();
-		assert.equal(leg.continueChatId, null);
-		assert.notEqual(leg.started, null, "the Started mark stays");
+		const { lesson, startedCount } = await firstLesson();
+		assert.equal(lesson.continueChatId, null);
+		assert.notEqual(lesson.started, null, "the Started mark stays");
 		assert.equal(startedCount, 1);
 	});
 
 	it("keeps today's link to the newest chat when the tenant server does not answer", async () => {
 		tenantDown = true;
 		logs.length = 0;
-		const { leg } = await foldingTheDart();
-		assert.equal(leg.continueChatId, "chat_2");
-		assert.equal(leg.started?.chatId, "chat_2");
+		const { lesson } = await firstLesson();
+		assert.equal(lesson.continueChatId, "chat_2");
+		assert.equal(lesson.started?.chatId, "chat_2");
 		assert.ok(logs.some((l) => /^course: could not list tenant .+'s chats \(TypeError\), so Continue links the newest start$/.test(l)), logs.join("\n"));
 
 		const lines: string[] = [];
@@ -327,35 +332,49 @@ describe("Continue after the student deletes a chat in the tutor", () => {
 	});
 });
 
+describe("a lesson on rules the ACS does not cover", () => {
+	it("starts like any lesson, with the 14 CFR paragraphs in the first message", async () => {
+		const res = await startLesson("l04");
+		assert.equal(res.status, 303);
+		const location = new URL(res.headers.get("location") ?? "", "http://x");
+		const prompt = location.searchParams.get("prompt") ?? "";
+		assert.equal(prompt, firstMessage(findLesson(sampleCourse(), "l04")!));
+		assert.match(prompt, /\n\nFrom 14 CFR Part 199 \(the ACS does not cover these rules\):\n- 199\.5 Kites near airports:\n {2}- \(a\) Line length\n/);
+		const chatId = location.pathname.slice("/chat/".length);
+		assert.deepEqual(JSON.parse(chatCreates()[0]!.body), { title: "Lesson 4: Kite rules near airports" });
+		assert.equal((await dbm.listLessonStarts(t.db, tenantId)).find((s) => s.chatId === chatId)?.lessonId, "l04");
+	});
+});
+
 describe("Started marks without the course_leg_starts table (migration not applied)", () => {
 	it("still starts the lesson, shows no marks, and logs one line", async () => {
 		await t.db.query("drop table public.course_leg_starts");
 		logs.length = 0;
-		const res = await startLeg("line-tension");
+		const res = await startLesson("l05");
 		assert.equal(res.status, 303);
 		assert.match(res.headers.get("location") ?? "", /^\/chat\/chat_\d+\?prompt=/);
 		const page = await course.runtime.page(cookie);
 		if (page.status !== "ready") throw new Error(page.status);
-		assert.ok(page.course.stages.every((s) => s.subjects.every((sub) => sub.legs.every((l) => l.started === null))));
-		await startLeg("folding-the-dart");
+		assert.ok(page.course.stages.every((s) => s.groups.every((g) => g.lessons.every((l) => l.started === null))));
+		await startLesson("l01");
 		await course.runtime.page(cookie);
 		assert.deepEqual(logs, [MISSING_TABLE_LINE]);
 	});
 
 	it("with no database at all, marks are off and nothing is logged", async () => {
 		const lines: string[] = [];
-		const marks = legStartMarks(null, (l) => lines.push(l));
-		await marks.record({ tenantId, legId: "x", chatId: "chat_x" });
-		assert.equal((await marks.startsByLeg(tenantId)).size, 0);
+		const marks = lessonStartMarks(null, (l) => lines.push(l));
+		await marks.record({ tenantId, lessonId: "x", chatId: "chat_x" });
+		assert.equal((await marks.startsByLesson(tenantId)).size, 0);
 		assert.deepEqual(lines, []);
 	});
 
 	it("logs only the error code for other database trouble", async () => {
 		const lines: string[] = [];
 		const broken = { query: async () => Promise.reject(Object.assign(new Error("value 'secret' is bad"), { code: "22001" })), transaction: async () => undefined } as unknown as dbm.Db;
-		const marks = legStartMarks(broken, (l) => lines.push(l));
-		await marks.record({ tenantId, legId: "x", chatId: "chat_x" });
-		assert.equal((await marks.startsByLeg(tenantId)).size, 0);
-		assert.deepEqual(lines, ["course: could not record a Leg start (error code 22001)", "course: could not read Leg starts (error code 22001)"]);
+		const marks = lessonStartMarks(broken, (l) => lines.push(l));
+		await marks.record({ tenantId, lessonId: "x", chatId: "chat_x" });
+		assert.equal((await marks.startsByLesson(tenantId)).size, 0);
+		assert.deepEqual(lines, ["course: could not record a lesson start (error code 22001)", "course: could not read lesson starts (error code 22001)"]);
 	});
 });

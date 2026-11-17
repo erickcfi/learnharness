@@ -1,0 +1,7 @@
+[
+  { "lesson": 1, "stage": "Before the first flight", "group": "Picking a kite", "title": "Kite shapes and line", "codes": ["ZZ.I.A.K1", "ZZ.I.A.K1a", "ZZ.I.A.K1b", "ZZ.I.A.K2"], "minutes": [20, 30], "milestone": "first-flight" },
+  { "lesson": 2, "stage": "Before the first flight", "group": "Picking a kite", "title": "Reels, gloves, and big kites", "codes": ["ZZ.I.A.K1c", "ZZ.I.A.R1", "ZZ.I.A.R2", "ZZ.I.A.R2a", "ZZ.I.A.R2b"], "minutes": [15, 25], "milestone": "first-flight" },
+  { "lesson": 3, "stage": "Before the first flight", "group": "The field", "title": "Where to fly", "codes": ["ZZ.I.B.K1", "ZZ.I.B.R1", "ZZ.II.A.K2"], "minutes": [20, 35], "milestone": "first-flight" },
+  { "lesson": 4, "stage": "Flying", "group": "Kite rules", "title": "Kite rules near airports", "codes": [], "minutes": [10, 20], "milestone": "flying", "regs": ["14 CFR 199.5(a), (b)", "14 CFR 199.7"] },
+  { "lesson": 5, "stage": "Flying", "group": "Launching", "title": "Launching", "codes": ["ZZ.II.A.R1", "ZZ.II.A.K1"], "minutes": [25, 25], "milestone": "flying" }
+]

@@ -1,5 +1,6 @@
 /**
- * The library's "Course" area (master, 2026-11-11): the Owner uploads the
+ * The library's "Course" area (master, 2026-11-11; lesson outline
+ * 2026-11-17): the Owner uploads the
  * one course file on /admin/library. It is stored as
  * <library>/course/private-pilot.course.json only when it passes the course
  * file check; anything else leaves nothing behind. The front door then reads
@@ -14,7 +15,7 @@ import { COURSE_FILE_NAME } from "../frontdoor/course/file.ts";
 import { libraryCourseSource } from "../frontdoor/course/source.ts";
 import { checkRelativePath, courseUploadName, LibraryError, LIBRARY_AREAS, listLibrary, removeLibraryFile, saveLibraryFile, targetFolder } from "../frontdoor/library/index.ts";
 import { type Fixture, startFixture } from "./frontdoor-admin-fixture.ts";
-import { sampleCourse, sampleCourseBytes } from "./helpers/frontdoor-course.ts";
+import { oldCourseFile, sampleCourse, sampleCourseBytes } from "./helpers/frontdoor-course.ts";
 
 let f: Fixture;
 let owner: string;
@@ -78,11 +79,12 @@ describe("uploading the course file on /admin/library", () => {
 
 	it("refuses anything that fails the check, and leaves the stored file as it was", async () => {
 		const before = fs.readFileSync(stored());
-		const withStatements = sampleCourse() as unknown as { stages: Array<{ subjects: Array<{ legs: Array<Record<string, unknown>> }> }> };
-		withStatements.stages[0]!.subjects[0]!.legs[0]!.statements = ["A key point statement"];
+		const withStatements = sampleCourse() as unknown as { stages: Array<{ groups: Array<{ lessons: Array<Record<string, unknown>> }> }> };
+		withStatements.stages[0]!.groups[0]!.lessons[0]!.statements = ["A statement for the tutor only"];
 		const cases: Array<[string, string, Buffer | string]> = [
 			["not JSON", "course.json", "%PDF-1.7 not json"],
-			["statements in a Leg", "course.json", Buffer.from(JSON.stringify(withStatements))],
+			["statements in a lesson", "course.json", Buffer.from(JSON.stringify(withStatements))],
+			["the earlier course design", "course.json", Buffer.from(JSON.stringify(oldCourseFile()))],
 			["wrong format", "course.json", Buffer.from(JSON.stringify({ ...sampleCourse(), format: "other" }))],
 			["not a .json name", "course.txt", sampleCourseBytes()],
 			["empty", "course.json", ""],
@@ -95,6 +97,8 @@ describe("uploading the course file on /admin/library", () => {
 		}
 		const statements = await upload("area=course&name=course.json&replace=1", Buffer.from(JSON.stringify(withStatements)));
 		assert.match(((await statements.json()) as { error: string }).error, /not a valid course file: .*does not allow: statements/);
+		const old = await upload("area=course&name=course.json&replace=1", Buffer.from(JSON.stringify(oldCourseFile())));
+		assert.match(((await old.json()) as { error: string }).error, /not a valid course file: this is the old course file \(version 1, from before the lesson outline\)\. Make a new one with build-course-file\.ts\.$/);
 		assert.deepEqual(fs.readFileSync(stored()), before);
 		assert.deepEqual(incomingLeft(), []);
 	});
@@ -117,8 +121,8 @@ describe("the front door reads the stored file", () => {
 		const lines: string[] = [];
 		const source = libraryCourseSource(f.libraryDir, (l) => lines.push(l));
 		await saveLibraryFile(f.libraryDir, Readable.from([sampleCourseBytes()]), { area: "course", fileName: "c.json", replace: true });
-		assert.equal((await source.load())?.title, "Sample ground school");
-		assert.equal((await source.load())?.title, "Sample ground school", "read again from its cache");
+		assert.equal((await source.load())?.title, "Private pilot ground school");
+		assert.equal((await source.load())?.title, "Private pilot ground school", "read again from its cache");
 
 		const changed = sampleCourse();
 		changed.title = "Sample ground school, revised";
@@ -139,7 +143,7 @@ describe("the front door reads the stored file", () => {
 		assert.equal(await source.load(), null);
 		assert.equal(await source.load(), null);
 		assert.equal(lines.length, 1);
-		assert.match(lines[0]!, /course file is not valid \(version must be 1\)/);
+		assert.match(lines[0]!, /course file is not valid \(version must be 2\)/);
 		await removeLibraryFile(f.libraryDir, `course/${COURSE_FILE_NAME}`);
 	});
 });

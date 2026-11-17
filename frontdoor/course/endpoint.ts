@@ -1,30 +1,32 @@
 /**
  * The front door's /course routes, for a signed-in student (master,
- * 2026-11-11). gateway/handler.ts sends them here after the login check,
- * the pause screen and the trial gate, so /course behaves like a tutor page.
+ * 2026-11-11; lesson outline 2026-11-17). gateway/handler.ts sends them here
+ * after the login check, the pause screen and the trial gate, so /course
+ * behaves like a tutor page.
  *
  *   GET  /course         the course page (Next.js, app/course/), which
  *                        checks the login and the 18+ tick again
- *   POST /course/start   leg=<id>: opens a new tutor chat for that Leg
+ *   POST /course/start   lesson=<id>: opens a new tutor chat for that lesson
  *
- * Starting a Leg uses upstream's own paths, unchanged:
+ * Starting a lesson uses upstream's own paths, unchanged:
  *  1. POST /api/chats on the student's own tutor server (with its secret
- *     header), titled with the Leg's title, as upstream's New session does.
- *  2. A row in course_leg_starts (tenant, Leg, chat, time), for the
- *     "Started" mark. Skipped quietly when the table is missing.
+ *     header), titled "Lesson <n>: <title>", as upstream's New session does.
+ *  2. A row in course_leg_starts (tenant, lesson id in leg_id, chat, time),
+ *     for the "Started" mark. Skipped quietly when the table is missing.
  *  3. A redirect to /chat/<id>?prompt=<first message>. Upstream's chat page
  *     sends ?prompt= as the chat's first message (app/chat/[id]/page.tsx,
  *     initialPrompt), once, only while the chat has no conversation yet.
- *     The longest real first message is under 1 KB in the URL.
+ *     The course file check keeps every lesson's address under 6 KB
+ *     (first-message.ts); the longest real one is about 4 KB.
  * The tutor then teaches its own way; its prompts and tools are unchanged.
  */
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { isSameOrigin } from "../admin/origin.ts";
 import { CHAT_ID } from "../admin/tenant-api.ts";
 import type { StartBlockCheck } from "./blocks.ts";
-import { findLeg } from "./file.ts";
+import { findLesson } from "./file.ts";
 import { firstMessage } from "./first-message.ts";
-import type { LegStartMarks } from "./marks.ts";
+import type { LessonStartMarks } from "./marks.ts";
 import type { CourseSource } from "./source.ts";
 
 export const COURSE_PATH = "/course";
@@ -50,7 +52,7 @@ export interface CourseEndpointDeps {
 	/** The front door's Next.js handler, for app/course/. */
 	frontDoorApp(req: IncomingMessage, res: ServerResponse): unknown;
 	source: CourseSource;
-	marks: LegStartMarks;
+	marks: LessonStartMarks;
 	startBlock: StartBlockCheck;
 	/** A request to the tenant's own server, with its secret header (supervisor.tenantFetch). */
 	tenantFetch: TenantRequest;
@@ -81,9 +83,14 @@ function readForm(req: IncomingMessage): Promise<URLSearchParams | null> {
 	});
 }
 
-/** Where a started Leg goes: the new chat, whose first message sets up the Leg. */
+/** Where a started lesson goes: the new chat, whose first message sets up the lesson. */
 export function chatStartPath(chatId: string, message: string): string {
 	return `/chat/${encodeURIComponent(chatId)}?prompt=${encodeURIComponent(message)}`;
+}
+
+/** The new chat's title in the tutor's chat list. */
+export function chatTitle(lesson: { number: number; title: string }): string {
+	return `Lesson ${lesson.number}: ${lesson.title}`;
 }
 
 export function createCourseEndpoint(deps: CourseEndpointDeps): CourseEndpoint {
@@ -129,18 +136,18 @@ export function createCourseEndpoint(deps: CourseEndpointDeps): CourseEndpoint {
 		if (!form) return send(res, 413, { "Content-Type": "text/plain; charset=utf-8" }, "Form too large.");
 		const course = await deps.source.load();
 		if (!course) return backToCourse(res, ctx); // the page says the course is coming soon
-		const found = findLeg(course, form.get("leg"));
-		if (!found) return backToCourse(res, ctx, "no-leg");
+		const found = findLesson(course, form.get("lesson"));
+		if (!found) return backToCourse(res, ctx, "no-lesson");
 		if (await deps.startBlock(ctx.tenantId)) {
 			// Cards fallback (Erick, 2026-11-11): a paused student or one at a budget cap would get
-			// pre-written question cards for this Leg here, once that mode exists. Not built yet:
+			// pre-written question cards for this lesson here, once that mode exists. Not built yet:
 			// back to /course, which says why no lesson can start.
 			return backToCourse(res, ctx);
 		}
-		const chatId = await createChat(ctx.tenantId, found.leg.title);
+		const chatId = await createChat(ctx.tenantId, chatTitle(found.lesson));
 		if (!chatId) return backToCourse(res, ctx, "starting");
-		await deps.marks.record({ tenantId: ctx.tenantId, legId: found.leg.id, chatId, at: new Date(now()) });
-		redirect(res, ctx, chatStartPath(chatId, firstMessage(found.leg)));
+		await deps.marks.record({ tenantId: ctx.tenantId, lessonId: found.lesson.id, chatId, at: new Date(now()) });
+		redirect(res, ctx, chatStartPath(chatId, firstMessage(found)));
 	}
 
 	return {

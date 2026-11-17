@@ -5,8 +5,9 @@ import { courseRedirect } from "../../course/view.ts";
 import { CourseScreen } from "./course-screen.tsx";
 
 /**
- * The guided course (master, 2026-11-11): stages, subjects and Legs from the
- * course file on the library volume, with "Start lesson" on each Leg. The
+ * The guided course (docs/decisions/2026-11-17-course-outline.md): stages,
+ * groups and numbered lessons from the course file on the library volume,
+ * with "Start lesson" on each lesson. The
  * gateway has already checked the login; the runtime checks it again, with
  * the 18+ tick, as the /account pages do. Without the front door's runtime
  * (Next.js started alone), the page is "not found".
