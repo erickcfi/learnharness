@@ -54,6 +54,7 @@ These run alongside the build. Owner: Erick, unless stated. Status as of 2026-11
 - **Done when:** the peak memory during a live turn is recorded, and K3 is updated.
 - **Note (2026-11-08):** the first real student session (2026-11-07, about 45 minutes, $2.75, Opus 5.5 with high thinking) ran outside staging, so it gives no memory reading.
 - **Note (2026-11-11):** since W1-6, staging's tutors use the front door's Anthropic key through the meter, and Settings no longer shows Providers to students. Steps 1, 2 and 4 may no longer apply: a session by any staging account now counts. Also, a Stripe live key named `ground-tutor-staging` was made by mistake (decision log, "Launch list"); this card's name may be where it came from. Erick expires it (`docs/launch-runbook.md`, step A4).
+- **Done (2026-11-17):** the first tester studied on staging for about 2 hours on 2026-11-13 (43 model calls). Peak 0.71 GB for the whole service during a live turn; the student's tenant server added about 0.19 to 0.24 GB. Recorded in `docs/decisions/2026-11-17-live-turn-memory.md`; PRD K3 updated.
 
 ### P7-01. Tester onboarding
 
@@ -142,7 +143,7 @@ Each package ran in its own agent session, in `~/lh-wt/<branch>`. The master ses
 
 ### Wave 0 (2026-11-07 to 2026-11-10)
 
-All Wave 0 cards are done except P0-07 (in Ready).
+All Wave 0 cards are done. P0-07 was the last, on 2026-11-17.
 
 #### P0-06. Staging on Railway, behind a password
 

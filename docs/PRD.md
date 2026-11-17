@@ -443,7 +443,7 @@ The build runs in waves of work packages, with up to five agents working in para
 
 - **K1.** The real cost per study hour. T7 closes it.
 - **K2.** The average study hours per student. Tester data closes it.
-- **K3.** Railway's monthly cost. Railway charges $10 per GB of memory per month. At about 207 MB per tenant server, that is about $21 a month for 10 tenants and about $207 for 100. Memory during a live model turn is not measured yet.
+- **K3.** Railway's monthly cost. Railway charges $10 per GB of memory per month. At about 207 MB per tenant server, that is about $21 a month for 10 tenants and about $207 for 100. Measured on staging on 2026-11-13 (`docs/decisions/2026-11-17-live-turn-memory.md`): one student's tenant server added about 0.19 to 0.24 GB to the service, live teaching turns included, and the whole service peaked at 0.71 GB with that student studying. So plan on about 240 MB per tenant server: about $24 a month for 10 tenants and about $240 for 100, plus about 0.3 GB for the front door itself.
 - **K4.** What a second Clerk application costs. Not checked.
 - **K5.** Search cost. It is $0.008 per Tavily basic search. The number of searches per session is not measured.
 - **K6.** The Cheap slot model and the Cache setting in the Owner's own LearnHarness. T7 closes it.
