@@ -32,7 +32,7 @@ Record in `docs/decisions/2026-11-08-database.md`.
 | `report_sends` | Reports claimed and sent, so none goes out twice: one per study sitting (W2-10 migration) or week | C6 req 3 |
 | `topic_labels` | Haiku's aviation flag per session topic | C7 req 4 |
 | `owner_settings` | One row: alert $60, autopause $89 | C3 req 5 |
-| `course_leg_starts` | Course Legs a student started on `/course`: tenant, Leg id, the chat it opened, when (migration `20261111000100`, not applied yet; `frontdoor/course`) | Course (master, 2026-11-11) |
+| `course_leg_starts` | Course lessons a student started on `/course`: tenant, lesson id (kept in the `leg_id` column), the chat it opened, when (migration `20261111000100`, applied; `frontdoor/course`) | Course (master, 2026-11-11; lesson outline 2026-11-17) |
 | `own_ai_keys` | A student's own Anthropic key, AES-256-GCM encrypted with `LH_OWN_KEY_SECRET` (never in the database): ciphertext, nonce, tag, last 4 characters, dates. One per tenant (migration `20261113000100`, not applied yet; `frontdoor/own-key`) | Own AI key (master, 2026-11-13) |
 | `tenant_overview` (view) | Dashboard status: trial, active, paused, canceled, retention, none | C7 req 2 |
 
@@ -62,7 +62,7 @@ Main entry points by package:
 - **Reports:** `getReportSettings`, `updateReportSettings`, `unsubscribeByToken`, `listWeeklyRecipients`, `claimReportSend`, `markReportSent`.
 - **Day 91:** `listTenantsDueForDeletion`, `deleteTenantAndAccount` (the caller deletes the tenant folder).
 - **The Owner's exemptions:** `isOwnerTenant(db, tenantId)` is the one check that the tenant's account holds the `owner` role. The trial gate, the plan-ended screen and the day-91 job use it; metering, the alert and autopause do not. Staff is not exempt.
-- **Course:** `recordLegStart`, `listLegStarts`. Call them through `frontdoor/course/marks.ts`, which keeps the page working while the table is missing.
+- **Course:** `recordLessonStart`, `listLessonStarts`. Call them through `frontdoor/course/marks.ts`, which keeps the page working while the table is missing.
 
 Money comes back as numbers of dollars (`costUsd`, `feeUsd`) or whole cents (`amountPaidCents`). A model call with `costUsd: null` is unpriced: it is stored and counted (`unpricedCalls` in `usageTotals`), but adds nothing to the cost sums, so it never moves a tenant toward the alert or autopause. Times are `Date`s. Weekly report weeks are `YYYY-MM-DD` strings.
 

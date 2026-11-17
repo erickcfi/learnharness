@@ -15,7 +15,7 @@ The Owner adds, replaces and removes files on `/admin/library`. The upload form 
 
 ## The Course area
 
-`course/` holds one file: the course file the `/course` page reads (`frontdoor/course`, master 2026-11-11). Choose "Course" on the upload form and pick the `.json` file that `frontdoor/course/build-course-file.ts` wrote. Whatever its name, it is stored as `course/private-pilot.course.json`. It is saved only when it passes the course file check (`frontdoor/course/file.ts`): the right format and version, ids, titles, outcomes, ACS codes and key point labels, and no other field. So a file with key point statements, source passages or quizzes is refused. Up to 5 MB. The same "Replace" rule applies. Removing it makes `/course` say the course is coming soon.
+`course/` holds one file: the course file the `/course` page reads (`frontdoor/course`, master 2026-11-11). Choose "Course" on the upload form and pick the `.json` file that `frontdoor/course/build-course-file.ts` wrote. Whatever its name, it is stored as `course/private-pilot.course.json`. It is saved only when it passes the course file check (`frontdoor/course/file.ts`): the right format and version (2, the lesson outline), stages, groups, numbered lessons with titles, minutes, ACS elements and regulation headings, and no other field. So a file with any other content, or an older course file, is refused. Up to 5 MB. The same "Replace" rule applies. Removing it makes `/course` say the course is coming soon.
 
 ## How a file is saved (`store.ts`)
 
