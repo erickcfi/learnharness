@@ -33,7 +33,7 @@ Decision and spike: `docs/decisions/2026-11-08-x5-front-door-spike.md`.
 | `study-time/` | Active study time (PD1) from a heartbeat on the tutor's pages, per upstream chat. |
 | `own-key/`, `app/account/ai-key/` | A student's own Anthropic key (2026-11-13): the "Your own AI key" page, the key stored encrypted, and the meter's choice of key per call, with no fallback to North Aero's key on a refusal. Own-key calls do not count toward the autopause. See `docs/decisions/2026-11-13-own-ai-key.md`. |
 | `library/` | The source library's upload, list and remove (P5-01), and its "Course" area for the course file. |
-| `course/`, `app/course/` | The guided course at `/course` (master, 2026-11-11): stages, subjects and Legs from the course file on the library volume, "Start lesson" opens a new tutor chat whose first message sets up the Leg, and "Started" marks. See `course/README.md`. |
+| `course/`, `app/course/` | The guided course at `/course` (master, 2026-11-11; North Aero's own lesson outline since 2026-11-17): stages, groups and numbered lessons from the course file on the library volume, "Start lesson" opens a new tutor chat whose first message sets up the lesson, and "Started" marks. See `course/README.md`. |
 | `sharing/`, `app/account/sharing/` | The student's session-text switch (D19). |
 | `proxy.ts` | Clerk's middleware, for the `/account` pages only. |
 

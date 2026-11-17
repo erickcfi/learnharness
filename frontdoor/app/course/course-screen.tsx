@@ -2,67 +2,53 @@
 /**
  * The course page's body (frontdoor/course). Pure: it renders the state the
  * runtime built, so tests render it without the front door. Words come from
- * course/copy.ts. Forms post to /course/start without JavaScript; subjects
- * open and close with <details>. Students see titles, outcomes and "key
- * points", never ids (the Leg id rides only in the Start form's hidden field).
+ * course/copy.ts; the look is the /account pages' (same widths, type,
+ * buttons and notice box). Each stage, its groups as subheadings, and the
+ * numbered lessons. Forms post to /course/start without JavaScript.
+ * Students see numbers, titles and minutes, never ids (the lesson id rides
+ * only in the Start form's hidden field).
  */
 import type { CSSProperties } from "react";
 import { BLOCK_COPY, COURSE_COPY as C } from "../../course/copy.ts";
-import type { LegView, ShownCoursePage, SubjectView } from "../../course/view.ts";
+import type { LessonView, ShownCoursePage } from "../../course/view.ts";
 
-const main: CSSProperties = { maxWidth: 720, margin: "0 auto", padding: 16, lineHeight: 1.5 };
-const muted: CSSProperties = { color: "#555", fontSize: 14 };
+// The /account pages' styles (app/account/ai-key, app/account/plans).
+const main: CSSProperties = { maxWidth: 560, margin: "0 auto", padding: 16, lineHeight: 1.5 };
+const muted: CSSProperties = { fontSize: 14, color: "#555" };
 const notice: CSSProperties = { background: "#fff7e6", border: "1px solid #f0c36d", borderRadius: 8, padding: 12, margin: "12px 0" };
-const button: CSSProperties = { font: "inherit", fontSize: 15, padding: "8px 16px", borderRadius: 8, border: "1px solid #1a1b1d", background: "#1a1b1d", color: "#fff", cursor: "pointer" };
-const quietButton: CSSProperties = { ...button, background: "#fff", color: "#1a1b1d" };
+const button: CSSProperties = { font: "inherit", fontSize: 16, padding: "10px 18px", borderRadius: 8, border: "1px solid #1a1b1d", background: "#1a1b1d", color: "#fff", cursor: "pointer" };
+const quiet: CSSProperties = { ...button, background: "#fff", color: "#1a1b1d" };
 const linkButton: CSSProperties = { ...button, display: "inline-block", textDecoration: "none" };
-const badge: CSSProperties = { display: "inline-block", fontSize: 12, padding: "1px 8px", borderRadius: 999, background: "#e7f3ea", color: "#1d5b2c", marginLeft: 8 };
-const card: CSSProperties = { borderTop: "1px solid #ddd", padding: "12px 0" };
+const row: CSSProperties = { borderTop: "1px solid #ccc", padding: "12px 0" };
 
-function Leg({ leg, canStart }: { leg: LegView; canStart: boolean }) {
+function Lesson({ lesson, canStart }: { lesson: LessonView; canStart: boolean }) {
 	return (
-		<li style={card}>
+		<li style={row}>
 			<div>
-				<strong>{leg.title}</strong>
-				{leg.started && <span style={badge}>{C.started}</span>}
+				<strong>{C.lesson(lesson.number, lesson.title)}</strong>
 			</div>
-			<div>{leg.outcome}</div>
-			<div style={muted}>{C.keyPoints(leg.keyPointCount)}</div>
-			<div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
-				{leg.continueChatId && (
-					<a href={`/chat/${encodeURIComponent(leg.continueChatId)}`} style={linkButton}>
-						{C.continue}
-					</a>
-				)}
-				{canStart && (
-					<form method="post" action="/course/start" style={{ margin: 0 }}>
-						<input type="hidden" name="leg" value={leg.id} />
-						<button type="submit" style={leg.continueChatId ? quietButton : button}>
-							{leg.continueChatId ? C.startAgain : C.start}
-						</button>
-					</form>
-				)}
+			<div style={muted}>
+				{C.minutes(lesson.minutes)}
+				{lesson.started && ` · ${C.started}`}
 			</div>
+			{(lesson.continueChatId || canStart) && (
+				<div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+					{lesson.continueChatId && (
+						<a href={`/chat/${encodeURIComponent(lesson.continueChatId)}`} style={linkButton}>
+							{C.continue}
+						</a>
+					)}
+					{canStart && (
+						<form method="post" action="/course/start" style={{ margin: 0 }}>
+							<input type="hidden" name="lesson" value={lesson.id} />
+							<button type="submit" style={lesson.continueChatId ? quiet : button}>
+								{lesson.continueChatId ? C.startAgain : C.start}
+							</button>
+						</form>
+					)}
+				</div>
+			)}
 		</li>
-	);
-}
-
-function Subject({ subject, canStart }: { subject: SubjectView; canStart: boolean }) {
-	return (
-		<details style={{ margin: "8px 0", border: "1px solid #ddd", borderRadius: 8, padding: "8px 12px" }}>
-			<summary style={{ cursor: "pointer", fontWeight: 600 }}>
-				{subject.title}{" "}
-				<span style={{ ...muted, fontWeight: 400 }}>
-					{C.lessons(subject.legs.length)}
-					{subject.startedCount > 0 ? ` · ${C.startedCount(subject.startedCount, subject.legs.length)}` : ""}
-				</span>
-			</summary>
-			<ol style={{ listStyle: "none", padding: 0, margin: "8px 0 0" }}>
-				{subject.legs.map((leg) => (
-					<Leg key={leg.id} leg={leg} canStart={canStart} />
-				))}
-			</ol>
-		</details>
 	);
 }
 
@@ -87,7 +73,8 @@ export function CourseScreen({ state, error }: { state: ShownCoursePage; error?:
 	return (
 		<main style={main}>
 			<h1 style={{ fontSize: 24, marginBottom: 4 }}>{course.title}</h1>
-			<p style={{ marginTop: 0 }}>{C.intro}</p>
+			<p style={{ ...muted, marginTop: 0 }}>{C.summary(course.lessonCount, course.stages.length)}</p>
+			<p>{C.intro}</p>
 			{errorText && (
 				<p role="alert" style={notice}>
 					{errorText}
@@ -107,10 +94,17 @@ export function CourseScreen({ state, error }: { state: ShownCoursePage; error?:
 				</p>
 			)}
 			{course.stages.map((stage) => (
-				<section key={stage.id} style={{ marginTop: 24 }}>
-					<h2 style={{ fontSize: 20, marginBottom: 8 }}>{stage.title}</h2>
-					{stage.subjects.map((subject) => (
-						<Subject key={`${stage.id}/${subject.id}`} subject={subject} canStart={!block} />
+				<section key={stage.number} style={{ marginTop: 32 }}>
+					<h2 style={{ fontSize: 20, marginBottom: 0 }}>{C.stage(stage.number, stage.title)}</h2>
+					{stage.groups.map((group, i) => (
+						<section key={`${stage.number}-${i}`}>
+							<h3 style={{ fontSize: 17, margin: "20px 0 4px" }}>{group.title}</h3>
+							<ol style={{ listStyle: "none", padding: 0, margin: 0 }}>
+								{group.lessons.map((lesson) => (
+									<Lesson key={lesson.id} lesson={lesson} canStart={!block} />
+								))}
+							</ol>
+						</section>
 					))}
 				</section>
 			))}
