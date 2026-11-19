@@ -27,4 +27,4 @@ The converter makes `l` plus the lesson number (`l01` to `l88`). If lessons are 
 
 ## Not kept in use
 
-The tests now use an invented kite course (`tests/fixtures/frontdoor-course/outline/`). The earlier design's fixtures (`tests/fixtures/frontdoor-course/groundwork/`) are no longer used by any test; they stay until their removal is approved.
+The tests now use an invented kite course (`tests/fixtures/frontdoor-course/outline/`). The earlier design's fixtures (`tests/fixtures/frontdoor-course/groundwork/`) were removed on 2026-11-19 with Erick's yes.
